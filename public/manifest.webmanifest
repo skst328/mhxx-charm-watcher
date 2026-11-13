@@ -1,0 +1,15 @@
+{
+  "name": "MHXX 護石ウォッチャー",
+  "short_name": "護石ウォッチャー",
+  "description": "今の乱数の位置から先に、欲しい護石がどれくらい後に出るかを調べます",
+  "lang": "ja",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#287deb",
+  "icons": [
+    { "src": "./icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "./icon-512.png", "sizes": "512x512", "type": "image/png" }
+  ]
+}

@@ -3,10 +3,12 @@
 
 pub mod types;
 
+use std::collections::BTreeMap;
+
 use mhxx_rand as rand;
 use wasm_bindgen::prelude::*;
 
-use types::{Charm, Compare, Found, Kind, Melding, SkillInfo};
+use types::{Charm, Compare, Found, Kind, Melding, PointRange, RewardCharm, SkillInfo};
 
 /// number で受けたフレームを u64 に直す (0 以上の整数でなければエラー)
 fn frame(v: f64) -> Result<u64, JsError> {
@@ -69,6 +71,69 @@ pub fn skill_info(
         .map(SkillInfo::from)
         .collect();
     to_js(&info)
+}
+
+/// クエスト報酬で kind のお守りから出うるスキル (番号の小さい順) と、第 1・第 2 スキルとしてのポイントの範囲。
+/// 第 2 スキルはマイナスも含む (0 は画面に出ないが、範囲には含める。選択肢から外すのは呼ぶ側)。
+/// なぞのお守りには第 2 スキルが付かないので、第 2 スキルの範囲はどれも null
+#[wasm_bindgen(js_name = rewardSkillInfo, unchecked_return_type = "SkillInfo[]")]
+pub fn reward_skill_info(
+    #[wasm_bindgen(unchecked_param_type = "Kind")] kind: JsValue,
+) -> Result<JsValue, JsError> {
+    let kind: rand::Kind = serde_wasm_bindgen::from_value::<Kind>(kind)?.into();
+    let t = kind.table();
+    // スキルの番号の小さい順に並べる
+    let mut info: BTreeMap<u16, SkillInfo> = BTreeMap::new();
+    for (&s, &(lo, hi)) in t.skill1.iter().zip(t.pts1) {
+        info.entry(s.id()).or_insert_with(|| new_info(s)).pts1 = Some(PointRange {
+            min: lo as i8,
+            max: hi as i8,
+        });
+    }
+    if t.no_skill2 < 100 {
+        for (&s, &(minus, max)) in t.skill2.iter().zip(t.pts2) {
+            info.entry(s.id()).or_insert_with(|| new_info(s)).pts2 = Some(PointRange {
+                min: -(minus as i8),
+                max: max as i8,
+            });
+        }
+    }
+    to_js(&info.into_values().collect::<Vec<_>>())
+}
+
+/// ポイントの範囲がまだ無い、スキルの情報
+fn new_info(s: rand::Skill) -> SkillInfo {
+    SkillInfo {
+        id: s.id(),
+        name: s.full_name(),
+        abbr: s.name(),
+        pts1: None,
+        pts2: None,
+    }
+}
+
+/// 位置 [start, end) で「鑑定する」を押すと、クエスト報酬で鑑定した charms が 1 個目から順に出るフレームを返す
+/// (小さい順に limit 件まで)。レア度が 1〜10 でなければエラー
+#[wasm_bindgen(js_name = searchRewards, unchecked_return_type = "number[]")]
+pub fn search_rewards(
+    #[wasm_bindgen(unchecked_param_type = "RewardCharm[]")] charms: JsValue,
+    start: f64,
+    end: f64,
+    limit: u32,
+) -> Result<JsValue, JsError> {
+    let charms = serde_wasm_bindgen::from_value::<Vec<RewardCharm>>(charms)?
+        .into_iter()
+        .map(rand::RewardCharm::try_from)
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|e| JsError::new(&e))?;
+    let frames = rand::search_rewards(&charms, frame(start)?..frame(end)?)
+        .map_err(|e| JsError::new(&e.to_string()))?;
+    let frames: Vec<f64> = frames
+        .into_iter()
+        .take(limit as usize)
+        .map(|f| f as f64)
+        .collect();
+    to_js(&frames)
 }
 
 /// 位置 [start, end) で、compare の比べ方で charms のどれかに合う護石が、kinds のどれかの種類のお守りとして

@@ -51,8 +51,8 @@ dependencies = [
 
 [[package]]
 name = "mhxx-rand"
-version = "0.3.0"
-source = "git+https://github.com/skst328/mhxx-rand?tag=v0.3.0#721957c9d9acfcf7765774b07937c90b8389407e"
+version = "0.4.0"
+source = "git+https://github.com/skst328/mhxx-rand?tag=v0.4.0#bc9e45dafc53e42c7dfda73809e07ef47af0b876"
 
 [[package]]
 name = "once_cell"

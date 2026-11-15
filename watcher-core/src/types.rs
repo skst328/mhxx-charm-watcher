@@ -124,6 +124,25 @@ impl TryFrom<Charm> for rand::Charm {
     }
 }
 
+/// クエスト報酬で鑑定した護石 1 個: レア度 (1〜10。護石の名前から分かる) と中身
+#[derive(Tsify, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
+pub struct RewardCharm {
+    pub rarity: u8,
+    /// 第 2 スキルが 0 ポイントだと画面に出ないので、なしにする
+    pub charm: Charm,
+}
+
+impl TryFrom<RewardCharm> for rand::RewardCharm {
+    type Error = String;
+
+    fn try_from(c: RewardCharm) -> Result<Self, String> {
+        Ok(Self {
+            rarity: c.rarity,
+            charm: c.charm.try_into()?,
+        })
+    }
+}
+
 /// 錬金で出うるスキルと、ポイントの範囲 (画面の選択肢に使う)。そのスキルになれない欄は null
 #[derive(Tsify, Serialize, Clone, Debug, PartialEq, Eq)]
 #[tsify(missing_as_null)]
@@ -135,7 +154,7 @@ pub struct SkillInfo {
     pub abbr: &'static str,
     /// 第 1 スキルとしてのポイントの範囲
     pub pts1: Option<PointRange>,
-    /// 第 2 スキルとしてのポイントの範囲 (錬金ではマイナスは出ないので 1 から)
+    /// 第 2 スキルとしてのポイントの範囲 (錬金ではマイナスは出ないので 1 から。クエスト報酬ではマイナスから)
     pub pts2: Option<PointRange>,
 }
 

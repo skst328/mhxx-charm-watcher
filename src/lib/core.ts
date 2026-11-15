@@ -1,10 +1,15 @@
 // ページ側から Worker (src/workers/core.worker.ts) に検索を頼む
 import type { WorkerRequest, WorkerResponse } from '../workers/core.worker'
-import type { Charm, Compare, Found, Kind, Melding, SkillInfo } from './types'
+import type { Charm, Compare, Found, Kind, Melding, RewardCharm, SkillInfo } from './types'
 import { AIM_LEAD, charmsOf, gosekiIn, HOUR, KINDS, type Goseki, type Wanted } from './watch'
 
 /** 錬金のやり方ごとの、出うるスキルとポイントの範囲 */
 export type MeldingSkills = Record<Melding, SkillInfo[]>
+/** クエスト報酬のお守りの種類ごとの、出うるスキルとポイントの範囲 (第 2 スキルはマイナスを含む) */
+export type RewardSkills = Record<Kind, SkillInfo[]>
+
+/** Worker の準備ができたときに受け取るもの */
+type Ready = { melding: MeldingSkills; reward: RewardSkills }
 
 /** 頼む内容 (id は call が付ける) */
 type Request = WorkerRequest extends infer R ? (R extends unknown ? Omit<R, 'id'> : never) : never
@@ -16,18 +21,18 @@ type Pending = {
 }
 
 let worker: Worker | null = null
-let skillsReady: Promise<MeldingSkills> | null = null
+let skillsReady: Promise<Ready> | null = null
 const pending = new Map<number, Pending>()
 let nextId = 1
 
-function start(): Promise<MeldingSkills> {
+function start(): Promise<Ready> {
   if (skillsReady) return skillsReady
   skillsReady = new Promise((resolveSkills, rejectSkills) => {
     worker = new Worker(new URL('../workers/core.worker.ts', import.meta.url), { type: 'module' })
     worker.onmessage = (event: MessageEvent<WorkerResponse>) => {
       const message = event.data
       if (message.type === 'ready') {
-        resolveSkills(message.skills)
+        resolveSkills({ melding: message.skills, reward: message.rewardSkills })
         return
       }
       if (message.type === 'failed') {
@@ -73,7 +78,24 @@ function call(
 
 /** wasm を読み込み、錬金のやり方ごとに出るスキルとポイントの範囲を返す */
 export function loadSkills(): Promise<MeldingSkills> {
-  return start()
+  return start().then((r) => r.melding)
+}
+
+/** wasm を読み込み、クエスト報酬のお守りの種類ごとに出るスキルとポイントの範囲を返す */
+export function loadRewardSkills(): Promise<RewardSkills> {
+  return start().then((r) => r.reward)
+}
+
+/** 位置 [start, end) で「鑑定する」を押すと、クエスト報酬で鑑定した charms が 1 個目から順に出るフレーム
+ * (小さい順。多すぎれば打ち切る) */
+export async function searchRewards(
+  charms: RewardCharm[],
+  start: number,
+  end: number,
+): Promise<{ frames: number[]; truncated: boolean }> {
+  const r = await call({ type: 'rewards', charms, start, end })
+  if (r.type !== 'rewards') throw new Error('検索の応答が不正')
+  return { frames: r.frames, truncated: r.truncated }
 }
 
 /** 位置 [start, end) で、melding の錬金で compare の比べ方で charms のどれかに合う護石を、kinds のどれかの

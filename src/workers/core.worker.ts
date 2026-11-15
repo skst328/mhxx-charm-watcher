@@ -1,12 +1,15 @@
 // 検索を、画面を止めずに行う Worker。依頼は届いた順に 1 つずつ処理する
 import init, {
+  rewardSkillInfo,
   search,
+  searchRewards,
   skillInfo,
   type Charm,
   type Compare,
   type Found,
   type Kind,
   type Melding,
+  type RewardCharm,
   type SkillInfo,
 } from '../../watcher-core/pkg/watcher_core.js'
 
@@ -21,15 +24,18 @@ export type WorkerRequest =
       start: number
       end: number
     }
+  /** クエスト報酬で鑑定した護石から、鑑定したフレームを探す */
+  | { id: number; type: 'rewards'; charms: RewardCharm[]; start: number; end: number }
   /** 検索の中止。区切りの合間に受け付ける */
   | { id: number; type: 'cancel'; target: number }
 
 export type WorkerResponse =
-  /** 錬金のやり方ごとの、出うるスキルとポイントの範囲 */
-  | { type: 'ready'; skills: Record<Melding, SkillInfo[]> }
+  /** 錬金のやり方ごとと、クエスト報酬のお守りの種類ごとの、出うるスキルとポイントの範囲 */
+  | { type: 'ready'; skills: Record<Melding, SkillInfo[]>; rewardSkills: Record<Kind, SkillInfo[]> }
   | { type: 'failed'; message: string }
   /** truncated: LIMIT 件で打ち切った */
   | { id: number; type: 'search'; found: Found[]; truncated: boolean }
+  | { id: number; type: 'rewards'; frames: number[]; truncated: boolean }
   | { id: number; type: 'progress'; done: number; total: number }
   | { id: number; type: 'cancelled' }
   | { id: number; type: 'error'; message: string }
@@ -41,8 +47,14 @@ const LIMIT = 1000
 
 const post = (message: WorkerResponse) => self.postMessage(message)
 
+const KINDS: Kind[] = ['weathered', 'worn', 'shining', 'mystery']
+
 const ready = init().then(() =>
-  post({ type: 'ready', skills: { juju: skillInfo('juju'), halcyon: skillInfo('halcyon') } }),
+  post({
+    type: 'ready',
+    skills: { juju: skillInfo('juju'), halcyon: skillInfo('halcyon') },
+    rewardSkills: Object.fromEntries(KINDS.map((k) => [k, rewardSkillInfo(k)])) as Record<Kind, SkillInfo[]>,
+  }),
 )
 ready.catch((e: unknown) => post({ type: 'failed', message: e instanceof Error ? e.message : String(e) }))
 
@@ -70,6 +82,25 @@ async function handle(request: WorkerRequest): Promise<void> {
         await new Promise((r) => setTimeout(r))
       }
       post({ id, type: 'search', found, truncated: false })
+      return
+    }
+    case 'rewards': {
+      const { id, charms, start, end } = request
+      const frames: number[] = []
+      for (let a = start; a < end; a = Math.min(a + CHUNK, end)) {
+        if (cancelled.delete(id)) {
+          post({ id, type: 'cancelled' })
+          return
+        }
+        frames.push(...searchRewards(charms, a, Math.min(a + CHUNK, end), LIMIT - frames.length))
+        if (frames.length >= LIMIT) {
+          post({ id, type: 'rewards', frames: frames.slice(0, LIMIT), truncated: true })
+          return
+        }
+        post({ id, type: 'progress', done: Math.min(a + CHUNK, end) - start, total: end - start })
+        await new Promise((r) => setTimeout(r))
+      }
+      post({ id, type: 'rewards', frames, truncated: false })
       return
     }
   }

@@ -1,6 +1,15 @@
 import { useEffect, useMemo, useState } from 'react'
-import { AlertCircleIcon, EyeIcon, ListPlusIcon, LoaderCircleIcon, RefreshCwIcon } from 'lucide-react'
+import {
+  AlertCircleIcon,
+  EyeIcon,
+  ListPlusIcon,
+  LoaderCircleIcon,
+  RefreshCwIcon,
+  RotateCcwIcon,
+  SparklesIcon,
+} from 'lucide-react'
 
+import { RewardEstimate } from '@/components/reward-estimate'
 import { ThemeToggle } from '@/components/theme-toggle'
 import { WantedCard } from '@/components/wanted-card'
 import { RemoveButton, WantedChips } from '@/components/wanted-chips'
@@ -17,14 +26,21 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
 import { Button } from '@/components/ui/button'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
-import { Label } from '@/components/ui/label'
-import { loadSkills, watch, type MeldingSkills, type WatchResult } from '@/lib/core'
+import {
+  loadRewardSkills,
+  loadSkills,
+  watch,
+  type MeldingSkills,
+  type RewardSkills,
+  type WatchResult,
+} from '@/lib/core'
 import { parseFrame } from '@/lib/frame'
 import { useStored } from '@/lib/storage'
 import { cn } from '@/lib/utils'
-import { GRID_HOURS, wantedText, type Wanted } from '@/lib/watch'
+import { FAMOUS } from '@/lib/famous'
+import { GRID_HOURS, sameWanted, wantedText, type Wanted } from '@/lib/watch'
 
 type Tab = 'watch' | 'register'
 
@@ -51,11 +67,21 @@ export default function App() {
   const [removing, setRemoving] = useState<Wanted | null>(null)
   const [confirming, setConfirming] = useState(false)
 
+  /** クエスト報酬のお守りの種類ごとの、出うるスキル (鑑定した護石の入力の選択肢) */
+  const [rewardSkills, setRewardSkills] = useState<RewardSkills | null>(null)
+  /** クエスト報酬から推定の欄をリセットした回数 (欄の key にして、変わったら作り直す) */
+  const [rewardReset, setRewardReset] = useState(0)
+
   useEffect(() => {
     loadSkills().then(setMeldingSkills, (e: Error) => setLoadError(e.message))
+    // 読み込みに失敗したときは、同じ Worker の loadSkills のほうで知らせる
+    loadRewardSkills().then(setRewardSkills, () => {})
   }, [])
 
   const current = parseFrame(frameText)
+
+  /** 有名な理論値護石のうち、まだ登録していないもの */
+  const unregisteredFamous = FAMOUS.filter((f) => !wanted.some((w) => sameWanted(w, { ...f, id: '' })))
 
   const askRemove = (w: Wanted) => {
     setRemoving(w)
@@ -126,21 +152,46 @@ export default function App() {
       {meldingSkills && skills && (
         <>
           <div role="tabpanel" hidden={tab !== 'watch'} className="space-y-6">
-            <Card>
-              <CardContent className="space-y-4">
-                <div className="space-y-1.5">
-                  <Label htmlFor="current-frame" className="text-sm font-normal text-muted-foreground">
-                    現在フレーム
-                  </Label>
-                  <Input
-                    id="current-frame"
-                    inputMode="numeric"
-                    className="font-mono"
-                    value={frameText}
-                    aria-invalid={frameText !== '' && current === null}
-                    onChange={(e) => setFrameText(e.target.value)}
+            {/* 鑑定した護石から現在フレームを探す。選んだフレームは下の現在フレームの欄に入る (更新は自分で押す) */}
+            {rewardSkills && (
+              <Card>
+                <CardHeader>
+                  <CardTitle>クエスト報酬から推定</CardTitle>
+                  <CardDescription>鑑定した護石を 1 個目から順に</CardDescription>
+                  {/* 入れた護石と結果を空に戻す (探す長さは残す) */}
+                  <CardAction>
+                    <Button variant="outline" size="sm" onClick={() => setRewardReset((n) => n + 1)}>
+                      <RotateCcwIcon />
+                      リセット
+                    </Button>
+                  </CardAction>
+                </CardHeader>
+                <CardContent>
+                  <RewardEstimate
+                    // リセットは作り直して空に戻す
+                    key={rewardReset}
+                    rewardSkills={rewardSkills}
+                    from={current ?? 0}
+                    onPick={(f) => setFrameText(String(f))}
                   />
-                </div>
+                </CardContent>
+              </Card>
+            )}
+
+            <Card>
+              <CardHeader>
+                <CardTitle id="current-frame-title">現在フレーム</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <Input
+                  id="current-frame"
+                  aria-labelledby="current-frame-title"
+                  inputMode="numeric"
+                  className="font-mono"
+                  value={frameText}
+                  aria-invalid={frameText !== '' && current === null}
+                  onChange={(e) => setFrameText(e.target.value)}
+                />
                 <Button onClick={check} disabled={current === null || wanted.length === 0 || searching}>
                   {searching ? <LoaderCircleIcon className="animate-spin" /> : <RefreshCwIcon />}
                   更新
@@ -184,6 +235,23 @@ export default function App() {
             <Card>
               <CardHeader>
                 <CardTitle>登録した護石</CardTitle>
+                {/* 有名な理論値護石のうち、まだ登録していないものをまとめて登録する */}
+                <CardAction>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    disabled={unregisteredFamous.length === 0}
+                    onClick={() =>
+                      setWanted((prev) => [
+                        ...prev,
+                        ...unregisteredFamous.map((w) => ({ ...w, id: crypto.randomUUID() })),
+                      ])
+                    }
+                  >
+                    <SparklesIcon />
+                    {unregisteredFamous.length === 0 ? '理論値護石は登録済み' : '有名な理論値護石を登録'}
+                  </Button>
+                </CardAction>
               </CardHeader>
               <CardContent>
                 {wanted.length === 0 ? (

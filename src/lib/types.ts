@@ -7,5 +7,6 @@ export type {
   Kind,
   Melding,
   PointRange,
+  RewardCharm,
   SkillInfo,
 } from '../../watcher-core/pkg/watcher_core.js'

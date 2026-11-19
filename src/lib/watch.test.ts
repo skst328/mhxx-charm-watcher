@@ -1,7 +1,18 @@
 import { expect, test } from 'vitest'
 
 import type { Found, SkillInfo } from './types'
-import { charmsOf, gosekiIn, HOUR, hourlyAims, sameWanted, shade, wantedChips, wantedText, type Wanted } from './watch'
+import {
+  charmsOf,
+  covers,
+  gosekiIn,
+  HOUR,
+  hourlyAims,
+  sameWanted,
+  shade,
+  wantedChips,
+  wantedText,
+  type Wanted,
+} from './watch'
 
 const skills: SkillInfo[] = [
   { id: 1, name: '連撃', abbr: '連撃', pts1: { min: 1, max: 4 }, pts2: { min: 1, max: 6 } },
@@ -55,6 +66,28 @@ test('sameWanted は id 以外の条件がすべて同じかを見る', () => {
   expect(sameWanted(wanted, { ...wanted, id: 'b' })).toBe(true)
   expect(sameWanted(wanted, { ...wanted, id: 'b', pts2: 4 })).toBe(false)
   expect(sameWanted(wanted, { ...wanted, id: 'b', melding: 'halcyon' })).toBe(false)
+})
+
+test('covers は欄ごとに当たる範囲を比べ、含むかを見る', () => {
+  const all = { juju: skills, halcyon: [] }
+  const c = (w: Partial<Wanted>) => ({ ...wanted, ...w })
+  const both = (a: Wanted, b: Wanted) => [covers(a, b, all), covers(b, a, all)]
+  // 連撃4以上 痛撃5以上 S3以上 (wanted) は、ポイントもスロットも最大なので一致と同じ範囲
+  expect(both(wanted, c({ compare: 'exact' }))).toEqual([true, true])
+  // 広い「以上」は狭い条件を含む (逆は含まない)
+  expect(both(c({ pts1: 2, skill2: null, pts2: null, slots: 0 }), wanted)).toEqual([true, false])
+  expect(both(c({ pts1: 3 }), c({ compare: 'exact', pts1: 3 }))).toEqual([true, false])
+  expect(both(c({ slots: 2 }), c({ compare: 'exact', slots: 3 }))).toEqual([true, false])
+  // 第 1 スキルを問わないものは、どの第 1 スキルも含む
+  expect(both(c({ skill1: null, pts1: null }), wanted)).toEqual([true, false])
+  // 「以上」の第 2 スキル問わずは「一致」の第 2 なしを含む。第 2 なしは第 2 スキルありを含まない
+  const none = c({ compare: 'exact', skill2: null, pts2: null })
+  expect(both(c({ skill2: null, pts2: null }), none)).toEqual([true, false])
+  expect(both(none, c({ compare: 'exact' }))).toEqual([false, false])
+  // 最小より小さい「以上」は最小からと同じ (気まぐれは第 1 スキルで 2〜3)
+  expect(both(c({ skill1: 3, pts1: 1 }), c({ skill1: 3, pts1: 2 }))).toEqual([true, true])
+  // 錬金のやり方が違えば含まない
+  expect(both(wanted, c({ melding: 'halcyon' }))).toEqual([false, false])
 })
 
 const charm = { skill1: 1, pts1: 4, skill2: null, pts2: null, slots: 3 }

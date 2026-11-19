@@ -40,7 +40,7 @@ import { parseFrame } from '@/lib/frame'
 import { useStored } from '@/lib/storage'
 import { cn } from '@/lib/utils'
 import { FAMOUS } from '@/lib/famous'
-import { GRID_HOURS, sameWanted, wantedText, type Wanted } from '@/lib/watch'
+import { covers, GRID_HOURS, wantedText, type Wanted } from '@/lib/watch'
 
 type Tab = 'watch' | 'register'
 
@@ -81,7 +81,10 @@ export default function App() {
   const current = parseFrame(frameText)
 
   /** 有名な理論値護石のうち、まだ登録していないもの */
-  const unregisteredFamous = FAMOUS.filter((f) => !wanted.some((w) => sameWanted(w, { ...f, id: '' })))
+  // 登録済みの条件に含まれるもの (同じ範囲のものも) は登録済みとみなす
+  const unregisteredFamous = meldingSkills
+    ? FAMOUS.filter((f) => !wanted.some((w) => covers(w, { ...f, id: '' }, meldingSkills)))
+    : []
 
   const askRemove = (w: Wanted) => {
     setRemoving(w)
@@ -230,7 +233,7 @@ export default function App() {
             <WantedForm
               meldingSkills={meldingSkills}
               wanted={wanted}
-              onAdd={(w) => setWanted((prev) => [...prev, w])}
+              onAdd={(w, removed) => setWanted((prev) => [...prev.filter((p) => !removed.includes(p.id)), w])}
             />
             <Card>
               <CardHeader>

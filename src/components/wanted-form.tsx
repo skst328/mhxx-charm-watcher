@@ -9,7 +9,7 @@ import { Label } from '@/components/ui/label'
 import { impossibleReason, type MeldingSkills } from '@/lib/core'
 import { majorSkills, pointsFor, skillsFor, type Slot } from '@/lib/skills'
 import type { Compare, Melding } from '@/lib/types'
-import { MELDING_LABEL, sameWanted, type Wanted } from '@/lib/watch'
+import { covers, MELDING_LABEL, sameWanted, wantedText, type Wanted } from '@/lib/watch'
 
 const MELDINGS: Melding[] = ['juju', 'halcyon']
 
@@ -24,9 +24,10 @@ export function WantedForm({
 }: {
   /** 錬金のやり方ごとの、出るスキルとポイントの範囲 (条件の選択肢に使う) */
   meldingSkills: MeldingSkills
-  /** 登録済みのもの (同じ条件を 2 度登録させない) */
+  /** 登録済みのもの (含まれる条件は登録させず、含む条件を登録したら含まれるものをまとめる) */
   wanted: Wanted[]
-  onAdd: (w: Wanted) => void
+  /** w を登録し、removed の id のもの (w に含まれる登録済みのもの) を消す */
+  onAdd: (w: Wanted, removed: string[]) => void
 }) {
   const [melding, setMelding] = useState<Melding>('juju')
   const [compare, setCompare] = useState<Compare>('atLeast')
@@ -77,8 +78,12 @@ export function WantedForm({
 
   /** いまの欄の条件 (id は登録するときに付け直す) */
   const draft: Wanted = { id: '', melding, compare, skill1, pts1, skill2, pts2, slots }
-  /** 同じ条件をもう登録しているか */
-  const registered = wanted.some((w) => sameWanted(w, draft))
+  // 重なる登録は操作ミスとみなし、広い条件だけを残す
+  /** いまの条件を含む登録済みのもの (あれば登録させない。同じ範囲のものも含む) */
+  const coveredBy = ready ? wanted.find((w) => covers(w, draft, meldingSkills)) : undefined
+  const registered = coveredBy !== undefined
+  /** いまの条件に含まれる登録済みのもの (登録するとまとめて消す) */
+  const absorbed = ready && !registered ? wanted.filter((w) => covers(draft, w, meldingSkills)) : []
   /** いまの条件が出ない組み合わせなら、その理由 (欄を変えたら消える) */
   const impossible = rejected && sameWanted(rejected.wanted, draft) ? rejected.message : null
 
@@ -89,7 +94,11 @@ export function WantedForm({
     const message = await impossibleReason(draft, meldingSkills)
     setChecking(false)
     if (message !== null) setRejected({ wanted: draft, message })
-    else onAdd({ ...draft, id: crypto.randomUUID() })
+    else
+      onAdd(
+        { ...draft, id: crypto.randomUUID() },
+        absorbed.map((w) => w.id),
+      )
   }
 
   return (
@@ -211,16 +220,25 @@ export function WantedForm({
             {checking ? <LoaderCircleIcon className="animate-spin" /> : <PlusIcon />}
             登録
           </Button>
-          {registered ? (
-            // 登録した直後もここに出る (登録できたことの知らせを兼ねる)
-            <p className="flex items-center gap-1.5 text-sm text-success">
-              <CheckIcon className="size-4 shrink-0" />
-              登録済み
-            </p>
+          {coveredBy !== undefined ? (
+            covers(draft, coveredBy, meldingSkills) ? (
+              // 同じ範囲。登録した直後もここに出る (登録できたことの知らせを兼ねる)
+              <p className="flex items-center gap-1.5 text-sm text-success">
+                <CheckIcon className="size-4 shrink-0" />
+                登録済み
+              </p>
+            ) : (
+              <p className="text-sm text-muted-foreground">登録済みの「{wantedText(coveredBy, skills)}」に含まれます</p>
+            )
+          ) : impossible !== null ? (
+            // 1 行目が見出し、2 行目からお守りの種類ごとの理由
+            <p className="text-sm whitespace-pre-line text-destructive">{impossible}</p>
           ) : (
-            impossible !== null && (
-              // 1 行目が見出し、2 行目からお守りの種類ごとの理由
-              <p className="text-sm whitespace-pre-line text-destructive">{impossible}</p>
+            absorbed.length > 0 && (
+              <p className="text-sm text-muted-foreground">
+                登録すると、含まれる {absorbed.length} 件をまとめます (
+                {absorbed.map((w) => `「${wantedText(w, skills)}」`).join('')})
+              </p>
             )
           )}
         </div>

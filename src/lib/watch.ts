@@ -1,5 +1,5 @@
 import { skillName } from './skills'
-import type { Charm, Compare, Found, Kind, Melding, SkillInfo } from './types'
+import type { Charm, Compare, Found, Kind, Melding, PointRange, SkillInfo } from './types'
 
 /** ゲームの 1 秒のフレーム数 */
 export const FPS = 30
@@ -60,7 +60,7 @@ export function wantedText(w: Wanted, skills: SkillInfo[]): string {
   return `${first} ${second} S${w.slots}${suffix} ${MELDING_LABEL[w.melding]}`
 }
 
-/** 同じ条件か (id は見ない。同じ条件を 2 度登録させないため) */
+/** 入れた値がそのまま同じ条件か (id は見ない。当たる範囲で比べるなら covers) */
 export const sameWanted = (a: Wanted, b: Wanted) =>
   a.melding === b.melding &&
   a.compare === b.compare &&
@@ -69,6 +69,52 @@ export const sameWanted = (a: Wanted, b: Wanted) =>
   a.skill2 === b.skill2 &&
   a.pts2 === b.pts2 &&
   a.slots === b.slots
+
+/** ポイントやスロットの範囲 (両端を含む) */
+type Span = { lo: number; hi: number }
+
+/** 条件が当たる範囲を、欄ごとに表したもの。スキルの null は「どのスキルでも」、第 2 スキルの 'none' は「付いていない」 */
+type Coverage = {
+  melding: Melding
+  skill1: { skill: number; pts: Span } | null
+  skill2: { skill: number; pts: Span } | null | 'none'
+  slots: Span
+}
+
+/** 条件が当たる範囲 (skills はその錬金で出るスキルとポイントの範囲)。「以上」は指定からその錬金で出る最大まで
+ * (指定が最小より小さければ最小から)、「一致」は指定の値だけ */
+function coverage(w: Wanted, skills: SkillInfo[]): Coverage {
+  const atLeast = w.compare === 'atLeast'
+  const span = (pts: number, range: PointRange | null | undefined): Span =>
+    atLeast && range ? { lo: Math.max(pts, range.min), hi: range.max } : { lo: pts, hi: pts }
+  const info = (id: number) => skills.find((s) => s.id === id)
+  return {
+    melding: w.melding,
+    skill1: w.skill1 === null ? null : { skill: w.skill1, pts: span(w.pts1!, info(w.skill1)?.pts1) },
+    skill2:
+      w.skill2 === null ? (atLeast ? null : 'none') : { skill: w.skill2, pts: span(w.pts2!, info(w.skill2)?.pts2) },
+    slots: atLeast ? { lo: w.slots, hi: 3 } : { lo: w.slots, hi: w.slots },
+  }
+}
+
+/**
+ * a の条件が、b の条件で当たる護石を全部当てるか (b が a に含まれるか。同じ範囲なら互いに含む)。欄ごとに範囲を比べる。
+ * skills は錬金のやり方ごとの、出るスキルとポイントの範囲 (「以上」の範囲の端に使う)
+ */
+export function covers(a: Wanted, b: Wanted, skills: Record<Melding, SkillInfo[]>): boolean {
+  if (a.melding !== b.melding) return false
+  const [ca, cb] = [coverage(a, skills[a.melding]), coverage(b, skills[b.melding])]
+  const within = (x: Span, y: Span) => x.lo <= y.lo && y.hi <= x.hi
+  const skill = (x: { skill: number; pts: Span }, y: { skill: number; pts: Span }) =>
+    x.skill === y.skill && within(x.pts, y.pts)
+  const first = ca.skill1 === null || (cb.skill1 !== null && skill(ca.skill1, cb.skill1))
+  const second =
+    ca.skill2 === null ||
+    (ca.skill2 === 'none'
+      ? cb.skill2 === 'none'
+      : cb.skill2 !== null && cb.skill2 !== 'none' && skill(ca.skill2, cb.skill2))
+  return first && second && within(ca.slots, cb.slots)
+}
 
 /** 条件をスキルとスロットの札にする (「痛撃6以上」「第2問わず」「S3以上」) */
 export function wantedChips(w: Wanted, skills: SkillInfo[]): string[] {

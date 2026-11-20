@@ -30,8 +30,8 @@ export type WorkerRequest =
   | { id: number; type: 'cancel'; target: number }
 
 export type WorkerResponse =
-  /** 錬金のやり方ごとと、クエスト報酬のお守りの種類ごとの、出うるスキルとポイントの範囲 */
-  | { type: 'ready'; skills: Record<Melding, SkillInfo[]>; rewardSkills: Record<Kind, SkillInfo[]> }
+  /** マカフシギ錬金と、クエスト報酬のお守りの種類ごとの、出うるスキルとポイントの範囲 */
+  | { type: 'ready'; skills: SkillInfo[]; rewardSkills: Record<Kind, SkillInfo[]> }
   | { type: 'failed'; message: string }
   /** truncated: LIMIT 件で打ち切った */
   | { id: number; type: 'search'; found: Found[]; truncated: boolean }
@@ -52,7 +52,7 @@ const KINDS: Kind[] = ['weathered', 'worn', 'shining', 'mystery']
 const ready = init().then(() =>
   post({
     type: 'ready',
-    skills: { juju: skillInfo('juju'), halcyon: skillInfo('halcyon') },
+    skills: skillInfo('juju'),
     rewardSkills: Object.fromEntries(KINDS.map((k) => [k, rewardSkillInfo(k)])) as Record<Kind, SkillInfo[]>,
   }),
 )

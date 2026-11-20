@@ -5,7 +5,7 @@ import { GosekiTable } from '@/components/goseki-table'
 import { HourGrid } from '@/components/hour-grid'
 import { RemoveButton, WantedChips } from '@/components/wanted-chips'
 import { Button } from '@/components/ui/button'
-import { watch, type MeldingSkills, type WatchResult } from '@/lib/core'
+import { watch, type WatchResult } from '@/lib/core'
 import { roughTime } from '@/lib/frame'
 import type { SkillInfo } from '@/lib/types'
 import { cn } from '@/lib/utils'
@@ -18,15 +18,13 @@ import { DETAIL_HOURS, FPS, GRID_HOURS, HOUR, hourlyAims, REACH_HOURS, type Want
 export function WantedCard({
   wanted: w,
   skills,
-  meldingSkills,
   from,
   result,
   onRemove,
 }: {
   wanted: Wanted
-  /** どちらの錬金のスキルも入った一覧 (名前を出すのに使う) */
+  /** マカフシギ錬金で出るスキルとポイントの範囲 (名前を出すのと、詳細を探すのに使う) */
   skills: SkillInfo[]
-  meldingSkills: MeldingSkills
   /** 調べたときの現在フレーム。まだ調べていなければ null */
   from: number | null
   result: WatchResult | undefined
@@ -47,7 +45,7 @@ export function WantedCard({
     setOpen(true)
     if (detail !== null || from === null) return
     setLoading(true)
-    setDetail(await watch(w, meldingSkills, from, DETAIL_HOURS))
+    setDetail(await watch(w, skills, from, DETAIL_HOURS))
     setLoading(false)
   }
 

@@ -29,14 +29,8 @@ import {
 import { Button } from '@/components/ui/button'
 import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
-import {
-  loadRewardSkills,
-  loadSkills,
-  watch,
-  type MeldingSkills,
-  type RewardSkills,
-  type WatchResult,
-} from '@/lib/core'
+import { loadRewardSkills, loadSkills, watch, type RewardSkills, type WatchResult } from '@/lib/core'
+import type { SkillInfo } from '@/lib/types'
 import { parseFrame } from '@/lib/frame'
 import { useStored } from '@/lib/storage'
 import { cn } from '@/lib/utils'
@@ -54,10 +48,9 @@ const TABS: { value: Tab; label: string; icon: typeof EyeIcon }[] = [
 export default function App() {
   /** 開いているタブ (初めて開いたときは、まず登録から) */
   const [tab, setTab] = useStored<Tab>('tab', 'register')
-  const [meldingSkills, setMeldingSkills] = useState<MeldingSkills | null>(null)
+  /** マカフシギ錬金で出るスキルとポイントの範囲 (選択肢・名前・理論値に使う) */
+  const [skills, setSkills] = useState<SkillInfo[] | null>(null)
   const [loadError, setLoadError] = useState<string | null>(null)
-  /** どちらの錬金のスキルも入った一覧 (名前を出すのに使う) */
-  const skills = useMemo(() => meldingSkills && [...meldingSkills.juju, ...meldingSkills.halcyon], [meldingSkills])
   /** 現在フレームの欄 (前回の値を覚えておく) */
   const [frameText, setFrameText] = useStored('current-frame', '')
   const [wanted, setWanted] = useStored<Wanted[]>('wanted-charms', [])
@@ -75,7 +68,7 @@ export default function App() {
   const [rewardReset, setRewardReset] = useState(0)
 
   useEffect(() => {
-    loadSkills().then(setMeldingSkills, (e: Error) => setLoadError(e.message))
+    loadSkills().then(setSkills, (e: Error) => setLoadError(e.message))
     // 読み込みに失敗したときは、同じ Worker の loadSkills のほうで知らせる
     loadRewardSkills().then(setRewardSkills, () => {})
   }, [])
@@ -86,16 +79,14 @@ export default function App() {
   const [famousSemi, setFamousSemi] = useStored('famous-semi', false)
   /** 有名な理論値護石のうち、まだ登録していないもの (選んだ形で)。
    * 登録済みの条件に含まれるもの (同じ範囲のものも) は登録済みとみなす */
-  const unregisteredFamous: Wanted[] = meldingSkills
-    ? FAMOUS.map((f) => ({ ...f, id: '', semi: famousSemi })).filter(
-        (f) => !wanted.some((w) => covers(w, f, meldingSkills)),
-      )
+  const unregisteredFamous: Wanted[] = skills
+    ? FAMOUS.map((f) => ({ ...f, id: '', semi: famousSemi })).filter((f) => !wanted.some((w) => covers(w, f, skills)))
     : []
   // まとめて登録する。フォームと同じく、足すものに含まれる登録済みのもの (準理論値もを足すときの理論値など) は消す
   const addFamous = () => {
-    if (meldingSkills === null) return
+    if (skills === null) return
     const adding = unregisteredFamous.map((f) => ({ ...f, id: crypto.randomUUID() }))
-    setWanted((prev) => [...prev.filter((p) => !adding.some((a) => covers(a, p, meldingSkills))), ...adding])
+    setWanted((prev) => [...prev.filter((p) => !adding.some((a) => covers(a, p, skills))), ...adding])
   }
 
   const askRemove = (target: Wanted | { all: number }) => {
@@ -116,10 +107,10 @@ export default function App() {
 
   // 欲しい護石ごとに、現在フレームから 3 日先までの錬金枠を探す
   const check = async () => {
-    if (current === null || meldingSkills === null) return
+    if (current === null || skills === null) return
     setSearching(true)
     const byId: Record<string, WatchResult> = {}
-    for (const w of wanted) byId[w.id] = await watch(w, meldingSkills, current, GRID_HOURS)
+    for (const w of wanted) byId[w.id] = await watch(w, skills, current, GRID_HOURS)
     setResults({ from: current, byId })
     setSearching(false)
   }
@@ -164,7 +155,7 @@ export default function App() {
       </nav>
 
       {/* タブを切り替えても入力や結果が残るように、どのタブも隠すだけにする */}
-      {meldingSkills && skills && (
+      {skills && (
         <>
           <div role="tabpanel" hidden={tab !== 'watch'} className="space-y-6">
             {/* 鑑定した護石から現在フレームを探す。選んだフレームは下の現在フレームの欄に入る (更新は自分で押す) */}
@@ -229,7 +220,6 @@ export default function App() {
                         key={`${w.id}-${results?.from}`}
                         wanted={w}
                         skills={skills}
-                        meldingSkills={meldingSkills}
                         from={results?.from ?? null}
                         result={results?.byId[w.id]}
                         onRemove={() => askRemove(w)}
@@ -243,7 +233,7 @@ export default function App() {
 
           <div role="tabpanel" hidden={tab !== 'register'} className="space-y-6">
             <WantedForm
-              meldingSkills={meldingSkills}
+              skills={skills}
               wanted={wanted}
               onAdd={(w, removed) => setWanted((prev) => [...prev.filter((p) => !removed.includes(p.id)), w])}
             />

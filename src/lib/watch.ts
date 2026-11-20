@@ -13,25 +13,18 @@ export const DETAIL_HOURS = 240
 /** 届く範囲 (時間)。マスに枠を付ける */
 export const REACH_HOURS = 3
 
-/** 錬金のやり方の名前 (遊んでいる人にはこれで通じる短い呼び方) */
-export const MELDING_LABEL: Record<Melding, string> = {
-  juju: 'マカ',
-  halcyon: '天運',
-}
+/** 欲しい護石を探す錬金 (マカフシギ錬金だけを扱う) */
+export const MELDING: Melding = 'juju'
 
-/** 錬金のやり方ごとの、出るお守りの種類 (欲しい護石はこのどれかとして出るものを探す) */
-export const KINDS: Record<Melding, Kind[]> = {
-  juju: ['weathered', 'worn'],
-  halcyon: ['worn', 'shining', 'mystery'],
-}
+/** マカフシギ錬金で出るお守りの種類 (欲しい護石はこのどれかとして出るものを探す) */
+export const KINDS: Kind[] = ['weathered', 'worn']
 
 /**
- * 欲しい護石の条件。比べ方が「以上」なら、ポイントとスロットはその値以上で、第 1・第 2 スキルの null は問わない。
- * 「一致」なら中身が同じで、第 2 スキルの null はなし
+ * 欲しい護石の条件 (マカフシギ錬金)。比べ方が「以上」なら、ポイントとスロットはその値以上で、第 1・第 2 スキルの
+ * null は問わない。「一致」なら中身が同じで、第 2 スキルの null はなし
  */
 export interface Wanted {
   id: string
-  melding: Melding
   compare: Compare
   skill1: number | null
   pts1: number | null
@@ -41,6 +34,29 @@ export interface Wanted {
   /** 準理論値も当てる (理論値を「一致」で登録したものにだけ付ける)。理論値に加えて、第 1 スキルが 1 少ない・
    * 第 2 スキルが 1 少ない・スロットが 2 の、どれか 1 つだけ違うものも当たる */
   semi?: boolean
+}
+
+/** 登録のしかた: 理論値・準理論値も・カスタム (ポイントやスロットを自分で決めたもの) */
+export type WantedMode = 'theory' | 'semi' | 'custom'
+
+/**
+ * 第 1 スキル × 第 2 スキルの理論値 (どちらもマカフシギ錬金で出る最大のポイントで、スロット 3 を一致で)。
+ * どちらかのスキルを決めていないか、その欄に出ないスキルなら null。
+ * マカフシギ錬金のどの組み合わせでも、両方が最大になる種類があり、スロット 3 も付きうる (表で確かめた)
+ */
+export function theoryOf(skill1: number | null, skill2: number | null, skills: SkillInfo[]): Omit<Wanted, 'id'> | null {
+  if (skill1 === null || skill2 === null || skill1 === skill2) return null
+  const max1 = skills.find((s) => s.id === skill1)?.pts1?.max
+  const max2 = skills.find((s) => s.id === skill2)?.pts2?.max
+  if (max1 === undefined || max2 === undefined) return null
+  return { compare: 'exact', skill1, pts1: max1, skill2, pts2: max2, slots: 3 }
+}
+
+/** 条件の登録のしかた (準理論値もの印があれば準理論値も、その組み合わせの理論値と同じなら理論値、ほかはカスタム) */
+export function modeOf(w: Wanted, skills: SkillInfo[]): WantedMode {
+  if (w.semi) return 'semi'
+  const t = theoryOf(w.skill1, w.skill2, skills)
+  return t && sameWanted(w, { ...t, id: w.id }) ? 'theory' : 'custom'
 }
 
 /** 条件を、印の付いていない条件の集まりにする (準理論値もなら、理論値と 3 通りの準理論値。出ないポイントのものは外す) */
@@ -64,20 +80,19 @@ export function charmsOf(w: Wanted, skills: SkillInfo[]): Charm[] {
   return [{ skill1: w.skill1, pts1: w.pts1!, ...second }]
 }
 
-/** 条件を 1 行の文にする (「痛撃6以上 第2問わず S3以上 マカ」) */
+/** 条件を 1 行の文にする (「痛撃6以上 第2問わず S3以上」) */
 export function wantedText(w: Wanted, skills: SkillInfo[]): string {
   const atLeast = w.compare === 'atLeast'
   const suffix = atLeast ? '以上' : ''
   const first = w.skill1 === null ? '第1問わず' : `${skillName(skills, w.skill1)}${w.pts1}${suffix}`
   const second =
     w.skill2 === null ? (atLeast ? '第2問わず' : '第2なし') : `${skillName(skills, w.skill2)}${w.pts2}${suffix}`
-  return `${first} ${second} S${w.slots}${suffix} ${MELDING_LABEL[w.melding]}${w.semi ? ' (準理論値も)' : ''}`
+  return `${first} ${second} S${w.slots}${suffix}${w.semi ? ' (準理論値も)' : ''}`
 }
 
 /** 入れた値がそのまま同じ条件か (id は見ない。当たる範囲で比べるなら covers) */
 export const sameWanted = (a: Wanted, b: Wanted) =>
   !a.semi === !b.semi &&
-  a.melding === b.melding &&
   a.compare === b.compare &&
   a.skill1 === b.skill1 &&
   a.pts1 === b.pts1 &&
@@ -90,13 +105,12 @@ type Span = { lo: number; hi: number }
 
 /** 条件が当たる範囲を、欄ごとに表したもの。スキルの null は「どのスキルでも」、第 2 スキルの 'none' は「付いていない」 */
 type Coverage = {
-  melding: Melding
   skill1: { skill: number; pts: Span } | null
   skill2: { skill: number; pts: Span } | null | 'none'
   slots: Span
 }
 
-/** 条件が当たる範囲 (skills はその錬金で出るスキルとポイントの範囲)。「以上」は指定からその錬金で出る最大まで
+/** 条件が当たる範囲 (skills はマカフシギ錬金で出るスキルとポイントの範囲)。「以上」は指定から出る最大まで
  * (指定が最小より小さければ最小から)、「一致」は指定の値だけ */
 function coverage(w: Wanted, skills: SkillInfo[]): Coverage {
   const atLeast = w.compare === 'atLeast'
@@ -104,7 +118,6 @@ function coverage(w: Wanted, skills: SkillInfo[]): Coverage {
     atLeast && range ? { lo: Math.max(pts, range.min), hi: range.max } : { lo: pts, hi: pts }
   const info = (id: number) => skills.find((s) => s.id === id)
   return {
-    melding: w.melding,
     skill1: w.skill1 === null ? null : { skill: w.skill1, pts: span(w.pts1!, info(w.skill1)?.pts1) },
     skill2:
       w.skill2 === null ? (atLeast ? null : 'none') : { skill: w.skill2, pts: span(w.pts2!, info(w.skill2)?.pts2) },
@@ -112,7 +125,7 @@ function coverage(w: Wanted, skills: SkillInfo[]): Coverage {
   }
 }
 
-/** 範囲 ca が範囲 cb を欄ごとに含むか (錬金のやり方は呼ぶ側で比べる) */
+/** 範囲 ca が範囲 cb を欄ごとに含むか */
 function boxCovers(ca: Coverage, cb: Coverage): boolean {
   const within = (x: Span, y: Span) => x.lo <= y.lo && y.hi <= x.hi
   const skill = (x: { skill: number; pts: Span }, y: { skill: number; pts: Span }) =>
@@ -137,7 +150,6 @@ function pointsOf(c: Coverage): Coverage[] | null {
   return values(skill1.pts).flatMap((p1) =>
     seconds.flatMap((s2) =>
       values(c.slots).map((s) => ({
-        melding: c.melding,
         skill1: { skill: skill1.skill, pts: one(p1) },
         skill2: s2,
         slots: one(s),
@@ -149,14 +161,12 @@ function pointsOf(c: Coverage): Coverage[] | null {
 /**
  * a の条件が、b の条件で当たる護石を全部当てるか (b が a に含まれるか。同じ範囲なら互いに含む)。欄ごとに範囲を比べる。
  * 準理論値もの条件は 4 通りの集まりとして比べる (a がそうなら、b に当たる護石を 1 つずつ並べて、どれかに入るかを見る)。
- * skills は錬金のやり方ごとの、出るスキルとポイントの範囲 (「以上」の範囲の端に使う)
+ * skills はマカフシギ錬金で出るスキルとポイントの範囲 (「以上」の範囲の端に使う)
  */
-export function covers(a: Wanted, b: Wanted, skills: Record<Melding, SkillInfo[]>): boolean {
-  if (a.melding !== b.melding) return false
-  const info = skills[a.melding]
-  const boxes = piecesOf(a, info).map((p) => coverage(p, info))
-  return piecesOf(b, info).every((pb) => {
-    const cb = coverage(pb, info)
+export function covers(a: Wanted, b: Wanted, skills: SkillInfo[]): boolean {
+  const boxes = piecesOf(a, skills).map((p) => coverage(p, skills))
+  return piecesOf(b, skills).every((pb) => {
+    const cb = coverage(pb, skills)
     if (boxes.length === 1) return boxCovers(boxes[0], cb)
     const points = pointsOf(cb)
     return points !== null && points.every((p) => boxes.some((box) => boxCovers(box, p)))
@@ -167,11 +177,13 @@ export function covers(a: Wanted, b: Wanted, skills: Record<Melding, SkillInfo[]
 export function wantedChips(w: Wanted, skills: SkillInfo[]): string[] {
   const atLeast = w.compare === 'atLeast'
   const suffix = atLeast ? '以上' : ''
+  // 登録のしかたの名前 (登録した一覧と同じく先頭に。カスタムは付けない)
+  const mode = { theory: ['理論値'], semi: ['準理論値も'], custom: [] }[modeOf(w, skills)]
   return [
+    ...mode,
     w.skill1 === null ? '第1問わず' : `${skillName(skills, w.skill1)}${w.pts1}${suffix}`,
     w.skill2 === null ? (atLeast ? '第2問わず' : '第2なし') : `${skillName(skills, w.skill2)}${w.pts2}${suffix}`,
     `S${w.slots}${suffix}`,
-    ...(w.semi ? ['準理論値も'] : []),
   ]
 }
 
@@ -189,8 +201,8 @@ export interface Goseki {
   aims: Aim[]
 }
 
-/** 当たりフレームは、錬金枠の位置より最大これだけ手前になる (天運の錬金。マカは 18) */
-export const AIM_LEAD = 30
+/** 当たりフレームは、錬金枠の位置より最大これだけ手前になる (マカフシギ錬金) */
+export const AIM_LEAD = 18
 
 /**
  * 見つかったものから、当たりフレームが [from, to) にあるものだけを残した錬金枠の一覧 (最初の当たりフレームの順)。

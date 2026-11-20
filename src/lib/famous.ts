@@ -34,7 +34,6 @@ const CHARMS: [skill1: number, pts1: number, skill2: number, pts2: number][] = [
 
 /** 有名な理論値護石を、登録する条件にしたもの (id は登録するときに付ける) */
 export const FAMOUS: Omit<Wanted, 'id'>[] = CHARMS.map(([skill1, pts1, skill2, pts2]) => ({
-  melding: 'juju',
   compare: 'exact',
   skill1,
   pts1,

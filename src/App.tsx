@@ -7,12 +7,13 @@ import {
   RefreshCwIcon,
   RotateCcwIcon,
   SparklesIcon,
+  Trash2Icon,
 } from 'lucide-react'
 
 import { RewardEstimate } from '@/components/reward-estimate'
 import { ThemeToggle } from '@/components/theme-toggle'
 import { WantedCard } from '@/components/wanted-card'
-import { RemoveButton, WantedChips } from '@/components/wanted-chips'
+import { WantedList } from '@/components/wanted-list'
 import { WantedForm } from '@/components/wanted-form'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import {
@@ -63,8 +64,9 @@ export default function App() {
   /** 調べた結果と、そのときの現在フレーム (欄を書き換えても、どこから調べた結果かが分かるように) */
   const [results, setResults] = useState<{ from: number; byId: Record<string, WatchResult> } | null>(null)
   const [searching, setSearching] = useState(false)
-  /** 消すか確かめている欲しい護石。確かめの窓を閉じても残す (閉じて消えていく間も、同じ文を出しておくため) */
-  const [removing, setRemoving] = useState<Wanted | null>(null)
+  /** 消すか確かめている欲しい護石 (all なら全部。件数は確かめ始めたときのもの)。確かめの窓を閉じても残す
+   * (閉じて消えていく間も、同じ文を出しておくため) */
+  const [removing, setRemoving] = useState<Wanted | { all: number } | null>(null)
   const [confirming, setConfirming] = useState(false)
 
   /** クエスト報酬のお守りの種類ごとの、出うるスキル (鑑定した護石の入力の選択肢) */
@@ -80,14 +82,24 @@ export default function App() {
 
   const current = parseFrame(frameText)
 
-  /** 有名な理論値護石のうち、まだ登録していないもの */
-  // 登録済みの条件に含まれるもの (同じ範囲のものも) は登録済みとみなす
-  const unregisteredFamous = meldingSkills
-    ? FAMOUS.filter((f) => !wanted.some((w) => covers(w, { ...f, id: '' }, meldingSkills)))
+  /** 有名な理論値護石を、準理論値も当てる形で登録するか (前回の選択を覚えておく) */
+  const [famousSemi, setFamousSemi] = useStored('famous-semi', false)
+  /** 有名な理論値護石のうち、まだ登録していないもの (選んだ形で)。
+   * 登録済みの条件に含まれるもの (同じ範囲のものも) は登録済みとみなす */
+  const unregisteredFamous: Wanted[] = meldingSkills
+    ? FAMOUS.map((f) => ({ ...f, id: '', semi: famousSemi })).filter(
+        (f) => !wanted.some((w) => covers(w, f, meldingSkills)),
+      )
     : []
+  // まとめて登録する。フォームと同じく、足すものに含まれる登録済みのもの (準理論値もを足すときの理論値など) は消す
+  const addFamous = () => {
+    if (meldingSkills === null) return
+    const adding = unregisteredFamous.map((f) => ({ ...f, id: crypto.randomUUID() }))
+    setWanted((prev) => [...prev.filter((p) => !adding.some((a) => covers(a, p, meldingSkills))), ...adding])
+  }
 
-  const askRemove = (w: Wanted) => {
-    setRemoving(w)
+  const askRemove = (target: Wanted | { all: number }) => {
+    setRemoving(target)
     setConfirming(true)
   }
 
@@ -238,37 +250,50 @@ export default function App() {
             <Card>
               <CardHeader>
                 <CardTitle>登録した護石</CardTitle>
-                {/* 有名な理論値護石のうち、まだ登録していないものをまとめて登録する */}
+                {/* 登録を全部消す (確かめてから) */}
                 <CardAction>
                   <Button
                     variant="outline"
                     size="sm"
-                    disabled={unregisteredFamous.length === 0}
-                    onClick={() =>
-                      setWanted((prev) => [
-                        ...prev,
-                        ...unregisteredFamous.map((w) => ({ ...w, id: crypto.randomUUID() })),
-                      ])
-                    }
+                    disabled={wanted.length === 0}
+                    onClick={() => askRemove({ all: wanted.length })}
                   >
-                    <SparklesIcon />
-                    {unregisteredFamous.length === 0 ? '理論値護石は登録済み' : '有名な理論値護石を登録'}
+                    <Trash2Icon />
+                    すべて消す
                   </Button>
                 </CardAction>
               </CardHeader>
-              <CardContent>
+              <CardContent className="space-y-3">
+                {/* 有名な理論値護石のうち、まだ登録していないものをまとめて登録する。準理論値も当てるかは押す前に選ぶ */}
+                <div className="flex flex-wrap items-center gap-2 border-b pb-3">
+                  <div className="flex gap-1" role="radiogroup" aria-label="有名な理論値護石の登録のしかた">
+                    {(
+                      [
+                        [false, '理論値のみ'],
+                        [true, '準理論値も'],
+                      ] as const
+                    ).map(([value, label]) => (
+                      <Button
+                        key={label}
+                        size="sm"
+                        variant={famousSemi === value ? 'default' : 'outline'}
+                        role="radio"
+                        aria-checked={famousSemi === value}
+                        onClick={() => setFamousSemi(value)}
+                      >
+                        {label}
+                      </Button>
+                    ))}
+                  </div>
+                  <Button variant="outline" size="sm" disabled={unregisteredFamous.length === 0} onClick={addFamous}>
+                    <SparklesIcon />
+                    {unregisteredFamous.length === 0 ? '有名な理論値護石は登録済み' : '有名な理論値護石を登録'}
+                  </Button>
+                </div>
                 {wanted.length === 0 ? (
                   <p className="text-sm text-muted-foreground">まだ登録していません</p>
                 ) : (
-                  // 登録した順。行の間に薄い線
-                  <ul className="divide-y">
-                    {wanted.map((w) => (
-                      <li key={w.id} className="flex items-center gap-2 py-2 first:pt-0 last:pb-0">
-                        <WantedChips wanted={w} skills={skills} />
-                        <RemoveButton onClick={() => askRemove(w)} />
-                      </li>
-                    ))}
-                  </ul>
+                  <WantedList wanted={wanted} skills={skills} onRemove={askRemove} />
                 )}
               </CardContent>
             </Card>
@@ -279,15 +304,21 @@ export default function App() {
       <AlertDialog open={confirming} onOpenChange={setConfirming}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>登録を消しますか？</AlertDialogTitle>
-            <AlertDialogDescription>{removing && skills && wantedText(removing, skills)}</AlertDialogDescription>
+            <AlertDialogTitle>
+              {removing && 'all' in removing ? '登録をすべて消しますか？' : '登録を消しますか？'}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {removing &&
+                ('all' in removing ? `${removing.all} 件の登録を消します` : skills && wantedText(removing, skills))}
+            </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>やめる</AlertDialogCancel>
             <AlertDialogAction
               variant="destructive"
               onClick={() => {
-                if (removing) setWanted((prev) => prev.filter((w) => w.id !== removing.id))
+                if (removing && 'all' in removing) setWanted([])
+                else if (removing) setWanted((prev) => prev.filter((w) => w.id !== removing.id))
                 setConfirming(false)
               }}
             >

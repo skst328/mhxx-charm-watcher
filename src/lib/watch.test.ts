@@ -7,6 +7,7 @@ import {
   gosekiIn,
   HOUR,
   hourlyAims,
+  piecesOf,
   sameWanted,
   shade,
   wantedChips,
@@ -88,6 +89,36 @@ test('covers は欄ごとに当たる範囲を比べ、含むかを見る', () =
   expect(both(c({ skill1: 3, pts1: 1 }), c({ skill1: 3, pts1: 2 }))).toEqual([true, true])
   // 錬金のやり方が違えば含まない
   expect(both(wanted, c({ melding: 'halcyon' }))).toEqual([false, false])
+})
+
+test('準理論値もの条件は、理論値と 3 通りの準理論値の集まりとして探し、比べる', () => {
+  const all = { juju: skills, halcyon: [] }
+  // 連撃4 痛撃5 S3 は、連撃 (第 1 スキル 1〜4) も痛撃 (第 2 スキル 1〜5) も最大の理論値
+  const theory: Wanted = { ...wanted, compare: 'exact' }
+  const semi: Wanted = { ...theory, semi: true }
+  const pts = (w: Wanted) => piecesOf(w, skills).map((p) => [p.pts1, p.pts2, p.slots])
+  expect(pts(semi)).toEqual([
+    [4, 5, 3],
+    [3, 5, 3],
+    [4, 4, 3],
+    [4, 5, 2],
+  ])
+  expect(charmsOf(semi, skills)).toHaveLength(4)
+  expect(wantedChips(semi, skills)).toEqual(['連撃4', '痛撃5', 'S3', '準理論値も'])
+  const both = (a: Wanted, b: Wanted) => [covers(a, b, all), covers(b, a, all)]
+  expect(both(semi, theory)).toEqual([true, false])
+  // 理論値で S2 以上は、理論値と S2 の準理論値の 2 つに分かれて含まれる
+  expect(both(semi, { ...wanted, slots: 2 })).toEqual([true, false])
+  // 2 か所足りないものは準理論値ではない
+  expect(both(semi, { ...theory, pts1: 3, pts2: 4 })).toEqual([false, false])
+  // 広い「以上」は準理論値もを含む
+  expect(both({ ...wanted, pts1: 3, pts2: 4, slots: 2 }, semi)).toEqual([true, false])
+  // 第 1 スキルの最小より下は準理論値にしない (気まぐれは第 1 スキルで 2〜3)
+  expect(pts({ ...semi, skill1: 3, pts1: 2 })).toEqual([
+    [2, 5, 3],
+    [2, 4, 3],
+    [2, 5, 2],
+  ])
 })
 
 const charm = { skill1: 1, pts1: 4, skill2: null, pts2: null, slots: 3 }

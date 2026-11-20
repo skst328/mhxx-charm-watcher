@@ -38,11 +38,25 @@ export interface Wanted {
   skill2: number | null
   pts2: number | null
   slots: number
+  /** 準理論値も当てる (理論値を「一致」で登録したものにだけ付ける)。理論値に加えて、第 1 スキルが 1 少ない・
+   * 第 2 スキルが 1 少ない・スロットが 2 の、どれか 1 つだけ違うものも当たる */
+  semi?: boolean
+}
+
+/** 条件を、印の付いていない条件の集まりにする (準理論値もなら、理論値と 3 通りの準理論値。出ないポイントのものは外す) */
+export function piecesOf(w: Wanted, skills: SkillInfo[]): Wanted[] {
+  if (!w.semi) return [w]
+  const base = { ...w, semi: false }
+  const min1 = skills.find((s) => s.id === w.skill1)?.pts1?.min ?? 1
+  return [base, { ...base, pts1: w.pts1! - 1 }, { ...base, pts2: w.pts2! - 1 }, { ...base, slots: 2 }].filter(
+    (p) => p.pts1! >= min1 && p.pts2! >= 1,
+  )
 }
 
 /** 欲しい護石の条件を、wasm の検索に渡す護石の一覧にする。第 1 スキルを問わないときは、第 1 スキルに出るスキル
- * ごとに、その最小のポイント以上で探す (出ない組み合わせは wasm 側で飛ばす) */
+ * ごとに、その最小のポイント以上で探す (出ない組み合わせは wasm 側で飛ばす)。準理論値もなら、4 通りを並べる */
 export function charmsOf(w: Wanted, skills: SkillInfo[]): Charm[] {
+  if (w.semi) return piecesOf(w, skills).flatMap((p) => charmsOf(p, skills))
   const second = { skill2: w.skill2, pts2: w.skill2 === null ? null : w.pts2, slots: w.slots }
   if (w.skill1 === null) {
     return skills.flatMap((s) => (s.pts1 ? [{ skill1: s.id, pts1: s.pts1.min, ...second }] : []))
@@ -57,11 +71,12 @@ export function wantedText(w: Wanted, skills: SkillInfo[]): string {
   const first = w.skill1 === null ? '第1問わず' : `${skillName(skills, w.skill1)}${w.pts1}${suffix}`
   const second =
     w.skill2 === null ? (atLeast ? '第2問わず' : '第2なし') : `${skillName(skills, w.skill2)}${w.pts2}${suffix}`
-  return `${first} ${second} S${w.slots}${suffix} ${MELDING_LABEL[w.melding]}`
+  return `${first} ${second} S${w.slots}${suffix} ${MELDING_LABEL[w.melding]}${w.semi ? ' (準理論値も)' : ''}`
 }
 
 /** 入れた値がそのまま同じ条件か (id は見ない。当たる範囲で比べるなら covers) */
 export const sameWanted = (a: Wanted, b: Wanted) =>
+  !a.semi === !b.semi &&
   a.melding === b.melding &&
   a.compare === b.compare &&
   a.skill1 === b.skill1 &&
@@ -97,13 +112,8 @@ function coverage(w: Wanted, skills: SkillInfo[]): Coverage {
   }
 }
 
-/**
- * a の条件が、b の条件で当たる護石を全部当てるか (b が a に含まれるか。同じ範囲なら互いに含む)。欄ごとに範囲を比べる。
- * skills は錬金のやり方ごとの、出るスキルとポイントの範囲 (「以上」の範囲の端に使う)
- */
-export function covers(a: Wanted, b: Wanted, skills: Record<Melding, SkillInfo[]>): boolean {
-  if (a.melding !== b.melding) return false
-  const [ca, cb] = [coverage(a, skills[a.melding]), coverage(b, skills[b.melding])]
+/** 範囲 ca が範囲 cb を欄ごとに含むか (錬金のやり方は呼ぶ側で比べる) */
+function boxCovers(ca: Coverage, cb: Coverage): boolean {
   const within = (x: Span, y: Span) => x.lo <= y.lo && y.hi <= x.hi
   const skill = (x: { skill: number; pts: Span }, y: { skill: number; pts: Span }) =>
     x.skill === y.skill && within(x.pts, y.pts)
@@ -116,6 +126,43 @@ export function covers(a: Wanted, b: Wanted, skills: Record<Melding, SkillInfo[]
   return first && second && within(ca.slots, cb.slots)
 }
 
+/** 範囲に入る護石を 1 つずつ (どの欄も 1 つの値の範囲) 並べる。スキルを問わない欄があれば並べきれないので null */
+function pointsOf(c: Coverage): Coverage[] | null {
+  if (c.skill1 === null || c.skill2 === null) return null
+  const values = (s: Span) => Array.from({ length: s.hi - s.lo + 1 }, (_, i) => s.lo + i)
+  const one = (v: number): Span => ({ lo: v, hi: v })
+  const { skill1, skill2 } = c
+  const seconds: Coverage['skill2'][] =
+    skill2 === 'none' ? ['none'] : values(skill2.pts).map((p) => ({ skill: skill2.skill, pts: one(p) }))
+  return values(skill1.pts).flatMap((p1) =>
+    seconds.flatMap((s2) =>
+      values(c.slots).map((s) => ({
+        melding: c.melding,
+        skill1: { skill: skill1.skill, pts: one(p1) },
+        skill2: s2,
+        slots: one(s),
+      })),
+    ),
+  )
+}
+
+/**
+ * a の条件が、b の条件で当たる護石を全部当てるか (b が a に含まれるか。同じ範囲なら互いに含む)。欄ごとに範囲を比べる。
+ * 準理論値もの条件は 4 通りの集まりとして比べる (a がそうなら、b に当たる護石を 1 つずつ並べて、どれかに入るかを見る)。
+ * skills は錬金のやり方ごとの、出るスキルとポイントの範囲 (「以上」の範囲の端に使う)
+ */
+export function covers(a: Wanted, b: Wanted, skills: Record<Melding, SkillInfo[]>): boolean {
+  if (a.melding !== b.melding) return false
+  const info = skills[a.melding]
+  const boxes = piecesOf(a, info).map((p) => coverage(p, info))
+  return piecesOf(b, info).every((pb) => {
+    const cb = coverage(pb, info)
+    if (boxes.length === 1) return boxCovers(boxes[0], cb)
+    const points = pointsOf(cb)
+    return points !== null && points.every((p) => boxes.some((box) => boxCovers(box, p)))
+  })
+}
+
 /** 条件をスキルとスロットの札にする (「痛撃6以上」「第2問わず」「S3以上」) */
 export function wantedChips(w: Wanted, skills: SkillInfo[]): string[] {
   const atLeast = w.compare === 'atLeast'
@@ -124,6 +171,7 @@ export function wantedChips(w: Wanted, skills: SkillInfo[]): string[] {
     w.skill1 === null ? '第1問わず' : `${skillName(skills, w.skill1)}${w.pts1}${suffix}`,
     w.skill2 === null ? (atLeast ? '第2問わず' : '第2なし') : `${skillName(skills, w.skill2)}${w.pts2}${suffix}`,
     `S${w.slots}${suffix}`,
+    ...(w.semi ? ['準理論値も'] : []),
   ]
 }
 

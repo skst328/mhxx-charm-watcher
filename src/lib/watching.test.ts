@@ -2,7 +2,7 @@ import { expect, test } from 'vitest'
 
 import type { Charm, Compare, Found, SkillInfo } from './types'
 import { AIM_LEAD, HOUR, type Wanted } from './watch'
-import { watchEachWith, type Search } from './watching'
+import { isAbort, watchEachWith, type Search } from './watching'
 
 // 連撃は第 1 スキルで 1〜4、痛撃・達人は第 2 スキルで 1〜5
 const skills: SkillInfo[] = [
@@ -108,4 +108,22 @@ test('探せなかった組み合わせの条件は、エラーの 1 行目を�
   )
   expect(byId.o).toEqual({ error: 'この錬金では出ない組み合わせ' })
   expect(positions(byId.t)).toEqual([1100, 1300])
+})
+
+test('search が中止で失敗したら、結果を返さずにそのエラーを投げ、残りの組み合わせは探さない', async () => {
+  const { search, calls } = fakeSearch()
+  const aborting: Search = async (charms, compare, start, end) => {
+    if (calls.length === 1) throw new DOMException('中止しました', 'AbortError')
+    return search(charms, compare, start, end)
+  }
+  const wanted = [exact('t', charm(4, 2, 5, 3)), exact('o', charm(4, 3, 5, 3)), exact('x', charm(4, 3, 4, 3))]
+  // 1 つめの組み合わせ (連撃 × 痛撃) は探せて、2 つめ (連撃 × 達人) で中止される
+  await expect(watchEachWith(aborting, wanted, skills, 1000, 1)).rejects.toMatchObject({ name: 'AbortError' })
+  expect(calls).toHaveLength(1)
+})
+
+test('isAbort は name が AbortError のエラーだけを中止とみなす', () => {
+  expect(isAbort(new DOMException('中止しました', 'AbortError'))).toBe(true)
+  expect(isAbort(new Error('この錬金では出ない組み合わせ'))).toBe(false)
+  expect(isAbort('AbortError')).toBe(false)
 })

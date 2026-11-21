@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   AlertCircleIcon,
   EyeIcon,
@@ -30,13 +30,14 @@ import { Button } from '@/components/ui/button'
 import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { loadRewardSkills, loadSkills, watchEach, type RewardSkills, type WatchResult } from '@/lib/core'
+import { isAbort } from '@/lib/watching'
 import type { SkillInfo } from '@/lib/types'
 import { parseFrame } from '@/lib/frame'
 import { useStored } from '@/lib/storage'
 import { cn } from '@/lib/utils'
 import { FAMOUS } from '@/lib/famous'
 import { famousToAdd } from '@/lib/register'
-import { GRID_HOURS, wantedText, type Wanted } from '@/lib/watch'
+import { GRID_HOURS, wantedText, watchTargets, type Wanted } from '@/lib/watch'
 
 type Tab = 'watch' | 'register'
 
@@ -83,13 +84,18 @@ export default function App() {
   /** 登録する (フォームと有名な理論値護石のボタンから。どちらも、まだ登録していない一致の条件だけを渡す) */
   const add = (adding: Wanted[]) => setWanted((prev) => [...prev, ...adding])
   const addFamous = () => add(unregisteredFamous.map((f) => ({ ...f, id: crypto.randomUUID() })))
+  /** 所持済みの切り替え (ウォッチのカードと、登録した一覧の札から) */
+  const toggleOwned = (target: Wanted) =>
+    setWanted((prev) => prev.map((w) => (w.id === target.id ? { ...w, owned: !w.owned } : w)))
+  /** ウォッチで探す条件 (所持済みでないもの) */
+  const targets = useMemo(() => watchTargets(wanted), [wanted])
 
   const askRemove = (target: Wanted | { all: number }) => {
     setRemoving(target)
     setConfirming(true)
   }
 
-  /** ウォッチタブのカードの並び: 条件ごとに、次の当たりフレームが近い順。3 日以内に出ないもの・
+  /** ウォッチタブのカードの並び: 所持済みでない条件ごとに、次の当たりフレームが近い順。3 日以内に出ないもの・
    * 調べていないものは後ろに、登録した順で */
   const byNext = useMemo(() => {
     const next = (w: Wanted) => {
@@ -97,15 +103,26 @@ export default function App() {
       return r && 'gosekis' in r && r.gosekis.length > 0 ? r.gosekis[0].aims[0].frame : Infinity
     }
     // 出ないもの同士 (Infinity - Infinity) は NaN にならないよう、等しいときは 0 にする
-    return wanted.toSorted((a, b) => (next(a) === next(b) ? 0 : next(a) - next(b)))
-  }, [wanted, results])
+    return targets.toSorted((a, b) => (next(a) === next(b) ? 0 : next(a) - next(b)))
+  }, [targets, results])
 
-  // 条件ごとに、現在フレームから 3 日先までの錬金枠を探す (まとめて探して振り分ける。watchEach)
+  /** 更新の中止 (更新している間だけある) */
+  const abort = useRef<AbortController | null>(null)
+  // 所持済みでない条件ごとに、現在フレームから 3 日先までの錬金枠を探す (まとめて探して振り分ける。watchEach)。
+  // 中止したら、前に調べた結果をそのまま残す
   const check = async () => {
     if (current === null || skills === null) return
+    const controller = new AbortController()
+    abort.current = controller
     setSearching(true)
-    setResults({ from: current, byId: await watchEach(wanted, skills, current, GRID_HOURS) })
-    setSearching(false)
+    try {
+      setResults({ from: current, byId: await watchEach(targets, skills, current, GRID_HOURS, controller.signal) })
+    } catch (e) {
+      if (!isAbort(e)) throw e
+    } finally {
+      abort.current = null
+      setSearching(false)
+    }
   }
 
   return (
@@ -191,10 +208,18 @@ export default function App() {
                   aria-invalid={frameText !== '' && current === null}
                   onChange={(e) => setFrameText(e.target.value)}
                 />
-                <Button onClick={check} disabled={current === null || wanted.length === 0 || searching}>
-                  {searching ? <LoaderCircleIcon className="animate-spin" /> : <RefreshCwIcon />}
-                  更新
-                </Button>
+                {/* 更新している間は、更新の代わりに中止を出す (別のボタンにして、色が移り変わらないようにする) */}
+                {searching ? (
+                  <Button key="abort" variant="outline" onClick={() => abort.current?.abort()}>
+                    <LoaderCircleIcon className="animate-spin" />
+                    中止
+                  </Button>
+                ) : (
+                  <Button key="check" onClick={check} disabled={current === null || targets.length === 0}>
+                    <RefreshCwIcon />
+                    更新
+                  </Button>
+                )}
               </CardContent>
             </Card>
 
@@ -205,6 +230,8 @@ export default function App() {
               <CardContent>
                 {wanted.length === 0 ? (
                   <p className="text-sm text-muted-foreground">まだ登録していません (「登録」のタブで登録します)</p>
+                ) : targets.length === 0 ? (
+                  <p className="text-sm text-muted-foreground">登録した護石はすべて所持済みです</p>
                 ) : (
                   <ul className="space-y-3">
                     {byNext.map((w) => (
@@ -215,6 +242,7 @@ export default function App() {
                         skills={skills}
                         from={results?.from ?? null}
                         result={results?.byId[w.id]}
+                        onOwned={() => toggleOwned(w)}
                       />
                     ))}
                   </ul>
@@ -271,7 +299,7 @@ export default function App() {
                 {wanted.length === 0 ? (
                   <p className="text-sm text-muted-foreground">まだ登録していません</p>
                 ) : (
-                  <WantedList wanted={wanted} skills={skills} onRemove={askRemove} />
+                  <WantedList wanted={wanted} skills={skills} onToggleOwned={toggleOwned} onRemove={askRemove} />
                 )}
               </CardContent>
             </Card>

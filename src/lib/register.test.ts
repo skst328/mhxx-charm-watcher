@@ -79,6 +79,20 @@ test('理論値と準理論値もでは、カスタムの欄 (比べ方・ポイ
   expect(planRegistration({ ...input, ...custom, mode: 'semi' }, [], skills).drafts).toHaveLength(4)
 })
 
+test('所持済みの条件も登録済みに数える (足さない)。所持済みかは owned で分かる', () => {
+  // 準理論値の 連撃3 を所持済みにした状態で、準理論値もで登録し直す
+  const wanted = [exact('a', 4, 5, 3), { ...exact('b', 3, 5, 3), owned: true }]
+  const plan = planRegistration({ ...input, mode: 'semi' }, wanted, skills)
+  expect(plan.registered).toEqual([true, true, false, false])
+  expect(plan.owned).toEqual([false, true, false, false])
+  expect(pts(plan.pending)).toEqual([
+    [4, 4, 3],
+    [4, 5, 2],
+  ])
+  // 理論値を所持済みにしていれば、理論値の登録は全部所持済み
+  expect(planRegistration(input, [{ ...exact('a', 4, 5, 3), owned: true }], skills).owned).toEqual([true])
+})
+
 test('前に「以上」で登録した広い条件に含まれるなら、登録せずにその条件を知らせる', () => {
   const wide: Wanted = { ...exact('w', 3, 4, 2), compare: 'atLeast' }
   const plan = planRegistration(input, [wide], skills)
@@ -101,4 +115,10 @@ test('famousToAdd は登録していない理論値 (準理論値もなら 3 通
     [4, 5, 2],
   ])
   expect(famousToAdd(famous, false, [exact('a', 4, 5, 3)], skills)).toEqual([])
+  // 所持済みにした準理論値は、また足さない
+  const owned = [exact('a', 4, 5, 3), { ...exact('b', 3, 5, 3), owned: true }]
+  expect(pts(famousToAdd(famous, true, owned, skills))).toEqual([
+    [4, 4, 3],
+    [4, 5, 2],
+  ])
 })

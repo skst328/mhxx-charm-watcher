@@ -18,6 +18,7 @@ import {
   shade,
   theoryOf,
   wantedText,
+  watchTargets,
   type Wanted,
 } from './watch'
 
@@ -149,9 +150,19 @@ test('expandAtLeast は「以上」の範囲を一致の条件に展開し、mat
   expect(matches(wanted, { ...charm, pts2: 5 }, skills)).toBe(true)
 })
 
-test('sameWanted は id 以外の条件がすべて同じかを見る', () => {
+test('sameWanted は id と所持済みかを見ずに、条件がすべて同じかを見る', () => {
   expect(sameWanted(wanted, { ...wanted, id: 'b' })).toBe(true)
+  expect(sameWanted(wanted, { ...wanted, id: 'b', owned: true })).toBe(true)
   expect(sameWanted(wanted, { ...wanted, id: 'b', pts2: 4 })).toBe(false)
+})
+
+test('watchTargets は所持済みでない条件だけを、登録した順で残す', () => {
+  const ws = [
+    { ...wanted, id: 'a' },
+    { ...wanted, id: 'b', owned: true },
+    { ...wanted, id: 'c', owned: false },
+  ]
+  expect(watchTargets(ws).map((w) => w.id)).toEqual(['a', 'c'])
 })
 
 test('covers は欄ごとに当たる範囲を比べ、含むかを見る', () => {

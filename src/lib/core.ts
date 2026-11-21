@@ -113,9 +113,20 @@ export async function searchCharms(
 
 export type { WatchResult } from './watching'
 
-/** 条件ごとに、from から hours 時間先までのどの錬金枠に出るかを Worker で探す (id ごとの結果。watchEachWith) */
-export const watchEach = (wanted: Wanted[], skills: SkillInfo[], from: number, hours: number) =>
-  watchEachWith((charms, compare, start, end) => searchCharms(charms, compare, start, end), wanted, skills, from, hours)
+/** 条件ごとに、from から hours 時間先までのどの錬金枠に出るかを Worker で探す (id ごとの結果。watchEachWith)。
+ * signal で中止すると、name が AbortError のエラーで失敗する */
+export const watchEach = (wanted: Wanted[], skills: SkillInfo[], from: number, hours: number, signal?: AbortSignal) =>
+  watchEachWith(
+    (charms, compare, start, end) => {
+      // 中止したあとに頼む検索は、Worker に送らずに中止で終える (送った検索は、区切りの合間に Worker が止める)
+      if (signal?.aborted) return Promise.reject(new DOMException('中止しました', 'AbortError'))
+      return searchCharms(charms, compare, start, end, { signal })
+    },
+    wanted,
+    skills,
+    from,
+    hours,
+  )
 
 /** 欲しい護石がマカフシギ錬金で出うるか。出なければ理由の文 (1 行目が見出し、2 行目から種類ごとの理由)。
  * 出ない組み合わせは探す前に分かるので、1 フレームだけ探して確かめる */

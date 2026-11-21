@@ -1,6 +1,7 @@
 import { useState, type ReactNode } from 'react'
 import { CheckIcon, LoaderCircleIcon, PlusIcon } from 'lucide-react'
 
+import { OwnedCrownIcon } from '@/components/owned-crown-icon'
 import { SkillCombobox } from '@/components/skill-combobox'
 import { ValueSelect, type Option } from '@/components/value-select'
 import { Button } from '@/components/ui/button'
@@ -53,7 +54,7 @@ export function WantedForm({
   /** 出ない組み合わせだった条件と、その理由 */
   const [rejected, setRejected] = useState<{ wanted: Wanted; message: string } | null>(null)
 
-  const { theory, drafts, registered, tooMany, ready, pending, widerBy } = planRegistration(
+  const { theory, drafts, registered, owned, tooMany, ready, pending, widerBy } = planRegistration(
     { mode, skill1, skill2, compare, pts1, pts2, slots },
     wanted,
     skills,
@@ -225,8 +226,14 @@ export function WantedForm({
           {ready && pending.length === 0 ? (
             widerBy ? (
               <p className="text-sm text-muted-foreground">登録済みの「{wantedText(widerBy, skills)}」に含まれます</p>
+            ) : // 同じ範囲。登録した直後もここに出る (登録できたことの知らせを兼ねる)。全部所持済みなら、
+            // 一覧の札と同じ王冠で「所持済み」
+            owned.every(Boolean) ? (
+              <p className="flex items-center gap-1.5 text-sm">
+                <OwnedCrownIcon jewel className="size-4 shrink-0 fill-warning text-warning" />
+                所持済み
+              </p>
             ) : (
-              // 同じ範囲。登録した直後もここに出る (登録できたことの知らせを兼ねる)
               <p className="flex items-center gap-1.5 text-sm text-success">
                 <CheckIcon className="size-4 shrink-0" />
                 登録済み

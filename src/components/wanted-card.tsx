@@ -3,6 +3,7 @@ import { ChevronDownIcon, ChevronUpIcon, LoaderCircleIcon } from 'lucide-react'
 
 import { GosekiTable } from '@/components/goseki-table'
 import { HourGrid } from '@/components/hour-grid'
+import { OwnedCrownIcon } from '@/components/owned-crown-icon'
 import { Button } from '@/components/ui/button'
 import { watchEach, type WatchResult } from '@/lib/core'
 import { roughTime } from '@/lib/frame'
@@ -30,6 +31,7 @@ export function WantedCard({
   skills,
   from,
   result,
+  onOwned,
 }: {
   wanted: Wanted
   /** マカフシギ錬金で出るスキルとポイントの範囲 (名前を出すのと、詳細を探すのに使う) */
@@ -37,6 +39,8 @@ export function WantedCard({
   /** 調べたときの現在フレーム。まだ調べていなければ null */
   from: number | null
   result: WatchResult | undefined
+  /** 所持済みにする (ウォッチから外れる。戻すのは登録タブの一覧で) */
+  onOwned: () => void
 }) {
   const [open, setOpen] = useState(false)
   const [detail, setDetail] = useState<WatchResult | null>(null)
@@ -63,6 +67,10 @@ export function WantedCard({
       <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm">
         {label && <span className="rounded-full bg-muted px-2 py-0.5 text-xs font-semibold">{label}</span>}
         <span className="font-semibold tabular-nums">{wantedText(w, skills)}</span>
+        <Button variant="outline" size="sm" className="ml-auto" onClick={onOwned}>
+          <OwnedCrownIcon />
+          所持済みにする
+        </Button>
       </div>
 
       {result === undefined || from === null ? (

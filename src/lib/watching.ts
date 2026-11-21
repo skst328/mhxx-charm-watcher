@@ -2,7 +2,8 @@
 import type { Charm, Compare, Found, SkillInfo } from './types'
 import { AIM_LEAD, charmsOf, gosekiIn, groupWanted, HOUR, matches, type Goseki, type Wanted } from './watch'
 
-/** 位置 [start, end) で、compare の比べ方で charms のどれかに合う護石を探す (位置の小さい順。多すぎれば打ち切る) */
+/** 位置 [start, end) で、compare の比べ方で charms のどれかに合う護石を探す (位置の小さい順。多すぎれば打ち切る)。
+ * 中止されたら、name が AbortError のエラーで失敗する */
 export type Search = (
   charms: Charm[],
   compare: Compare,
@@ -33,10 +34,15 @@ async function watchCharms(
     )
     return { gosekis: gosekiIn(found, from, to), truncated }
   } catch (e) {
+    // 中止は結果にせず、そのまま投げる (呼ぶ側で探すのをやめる)
+    if (isAbort(e)) throw e
     // 出ない組み合わせなら、1 行目が見出し (2 行目からの種類ごとの理由は、ここでは出さない)
     return { error: (e as Error).message.split('\n')[0] }
   }
 }
+
+/** 中止されたときのエラー (name が AbortError) か */
+export const isAbort = (e: unknown) => e instanceof Error && e.name === 'AbortError'
 
 /**
  * 組み合わせでまとめた条件 (group) を探し、錬金枠を 1 つの一覧に合わせる (最初の当たりフレームの順)。
@@ -77,7 +83,8 @@ async function watchGroup(
  * 条件ごとに、from から hours 時間先までのどの錬金枠に出るかを search で探す (id ごとの結果)。
  * 探すのは組み合わせと比べ方ごとに 1 回 (登録はいつも一致なので、ふつうは組み合わせごとに 1 回) で、
  * 見つけた護石を、中身が当たる条件に振り分ける。組み合わせの中のどの比べ方でも探せなかったときだけ、
- * その組み合わせの条件はどれも最初の理由 (エラーの 1 行目) を受け取る
+ * その組み合わせの条件はどれも最初の理由 (エラーの 1 行目) を受け取る。
+ * search が中止で失敗したら、結果を返さずにそのエラーを投げる (残りの組み合わせは探さない)
  */
 export async function watchEachWith(
   search: Search,

@@ -31,7 +31,12 @@ export interface Wanted {
   skill2: number | null
   pts2: number | null
   slots: number
+  /** 所持済み (手に入れたので探さない)。登録は残すので、同じ条件は登録済みとして扱われ、足されない */
+  owned?: boolean
 }
+
+/** ウォッチで探す条件 (所持済みでないもの) */
+export const watchTargets = (wanted: Wanted[]) => wanted.filter((w) => !w.owned)
 
 /** 条件の種類: 理論値・準理論値 (理論値から 1 か所だけ下がった一致)・カスタム (ほかの条件) */
 export type WantedMode = 'theory' | 'semi' | 'custom'
@@ -121,7 +126,7 @@ export function wantedText(w: Wanted, skills: SkillInfo[]): string {
   return `${first} ${second} S${w.slots}${suffix}`
 }
 
-/** 入れた値がそのまま同じ条件か (id は見ない。当たる範囲で比べるなら covers) */
+/** 入れた値がそのまま同じ条件か (id と所持済みかは見ない。当たる範囲で比べるなら covers) */
 export const sameWanted = (a: Wanted, b: Wanted) =>
   a.compare === b.compare &&
   a.skill1 === b.skill1 &&

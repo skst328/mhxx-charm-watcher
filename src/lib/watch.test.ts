@@ -25,6 +25,8 @@ const skills: SkillInfo[] = [
   { id: 1, name: '連撃', abbr: '連撃', pts1: { min: 1, max: 4 }, pts2: { min: 1, max: 6 } },
   { id: 2, name: '痛撃', abbr: '痛撃', pts1: null, pts2: { min: 1, max: 5 } },
   { id: 3, name: '気まぐれ', abbr: '気紛', pts1: { min: 2, max: 3 }, pts2: null },
+  // 第 2 スキルで 1 しか出ないもの (準理論値で第 2 スキルを下げられない)
+  { id: 4, name: '耐泥', abbr: '耐泥', pts1: null, pts2: { min: 1, max: 1 } },
 ]
 
 const wanted: Wanted = {
@@ -76,6 +78,11 @@ test('theoryOf は組み合わせの最大のポイントと S3 の一致、semi
     [2, 4, 3],
     [2, 5, 2],
   ])
+  // 第 2 スキルが 1 より下になるものも外す (耐泥は第 2 スキルで 1 だけ)
+  expect(pts(semisOf(theoryOf(1, 4, skills)!, skills))).toEqual([
+    [3, 1, 3],
+    [4, 1, 2],
+  ])
 })
 
 test('modeOf は理論値・準理論値・カスタムを見分ける', () => {
@@ -85,6 +92,8 @@ test('modeOf は理論値・準理論値・カスタムを見分ける', () => {
   // 理論値と同じ範囲でも「以上」で入れたもの、2 か所下がったものはカスタム
   expect(modeOf(wanted, skills)).toBe('custom')
   expect(modeOf({ ...theory, pts1: 3, pts2: 4 }, skills)).toBe('custom')
+  // 理論値が決まらない条件 (第 2 スキルなし) もカスタム
+  expect(modeOf({ ...theory, skill2: null, pts2: null }, skills)).toBe('custom')
 })
 
 test('conditionText はポイントとスロットを、groupTitle は組み合わせの名前を出す', () => {
@@ -95,7 +104,7 @@ test('conditionText はポイントとスロットを、groupTitle は組み合�
   expect(groupTitle({ ...wanted, compare: 'exact', skill2: null }, skills)).toBe('連撃 × 第2なし')
 })
 
-test('groupWanted は組み合わせでまとめ、組み合わせはスキルの順、中はポイントの大きい順に並べる', () => {
+test('groupWanted は組み合わせでまとめ、組み合わせはスキルの順、中はポイントとスロットの大きい順に並べる', () => {
   const w = (id: string, p: Partial<Wanted>): Wanted => ({ ...wanted, id, ...p })
   const groups = groupWanted([
     w('a', { pts1: 3 }),
@@ -104,8 +113,13 @@ test('groupWanted は組み合わせでまとめ、組み合わせはスキル�
     // 第 2 スキル問わず (以上) となし (一致) は別の組み合わせ
     w('d', { skill2: null, pts2: null }),
     w('e', { compare: 'exact', skill2: null, pts2: null }),
+    // 第 1 スキルのポイントが同じなら第 2 スキルのポイント、それも同じならスロットの大きい順
+    w('f', { pts2: 4 }),
+    w('g', { slots: 2 }),
+    // 第 2 スキルの番号が大きい組み合わせは後ろ
+    w('h', { skill2: 4, pts2: 1 }),
   ])
-  expect(groups.map((g) => g.map((x) => x.id))).toEqual([['d'], ['e'], ['c', 'a'], ['b']])
+  expect(groups.map((g) => g.map((x) => x.id))).toEqual([['d'], ['e'], ['c', 'g', 'f', 'a'], ['h'], ['b']])
 })
 
 test('expandAtLeast は「以上」の範囲を一致の条件に展開し、matches は中身が条件に当たるかを見る', () => {
@@ -126,6 +140,9 @@ test('expandAtLeast は「以上」の範囲を一致の条件に展開し、mat
   // 最小より小さい指定は最小から (気まぐれは第 1 スキルで 2〜3)。スキルを決めていなければ空
   expect(expandAtLeast({ ...range, skill1: 3, pts1: 1, pts2: 5, slots: 3 }, skills)).toHaveLength(2)
   expect(expandAtLeast({ ...range, skill2: null }, skills)).toEqual([])
+  // ポイントを決めていないか、そのスキルがその欄に出ないなら空 (気まぐれは第 2 スキルにならない)
+  expect(expandAtLeast({ ...range, pts2: null }, skills)).toEqual([])
+  expect(expandAtLeast({ ...range, skill2: 3 }, skills)).toEqual([])
   const charm = { skill1: 1, pts1: 4, skill2: 2, pts2: 4, slots: 3 }
   expect(matches({ ...all[2], id: 'x' }, charm, skills)).toBe(true)
   expect(matches({ ...all[0], id: 'x' }, charm, skills)).toBe(false)

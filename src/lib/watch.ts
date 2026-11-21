@@ -41,8 +41,9 @@ export const MODE_LABEL: Record<WantedMode, string | null> = { theory: '理論�
 
 /**
  * 第 1 スキル × 第 2 スキルの理論値 (どちらもマカフシギ錬金で出る最大のポイントで、スロット 3 を一致で)。
- * どちらかのスキルを決めていないか、その欄に出ないスキルなら null。
- * マカフシギ錬金のどの組み合わせでも、両方が最大になる種類があり、スロット 3 も付きうる (表で確かめた)
+ * どちらかのスキルを決めていないか、同じスキルか、その欄に出ないスキルなら null。
+ * (前提: マカフシギ錬金のどの組み合わせでも、両方が最大になる種類があり、スロット 3 も付きうる。
+ * 2026-11 に本家の表で総当たりして確かめた。表を使うのでこのテストでは確かめない)
  */
 export function theoryOf(skill1: number | null, skill2: number | null, skills: SkillInfo[]): Omit<Wanted, 'id'> | null {
   if (skill1 === null || skill2 === null || skill1 === skill2) return null
@@ -52,8 +53,8 @@ export function theoryOf(skill1: number | null, skill2: number | null, skills: S
   return { compare: 'exact', skill1, pts1: max1, skill2, pts2: max2, slots: 3 }
 }
 
-/** 理論値から 1 か所だけ下がった準理論値 3 通り (第 1 スキルが 1 少ない・第 2 スキルが 1 少ない・スロット 2)。
- * 出ないポイントになるものは外す */
+/** 理論値から 1 か所だけ下がった準理論値 3 通り (第 1 スキルが 1 少ない・第 2 スキルが 1 少ない・スロット 2 の順)。
+ * 出ないポイントになるもの (第 1 スキルはその欄の最小、第 2 スキルは 1 より小さいもの) は外す */
 export function semisOf(theory: Omit<Wanted, 'id'>, skills: SkillInfo[]): Omit<Wanted, 'id'>[] {
   const min1 = skills.find((s) => s.id === theory.skill1)?.pts1?.min ?? 1
   return [
@@ -68,7 +69,8 @@ export const EXPAND_LIMIT = 20
 
 /**
  * 「以上」の範囲を、一致の条件の集まりに展開する (ポイントは指定からその欄で出る最大まで、最小より小さい指定は
- * 最小から。スロットは指定から 3 まで)。ポイントの大きい順。スキルを決めていないか、その欄に出ないなら空
+ * 最小から。スロットは指定から 3 まで)。並びは第 1 スキルのポイント、第 2 スキルのポイント、スロットの大きい順。
+ * スキルかポイントを決めていないか、そのスキルがその欄に出ないなら空
  */
 export function expandAtLeast(
   range: Pick<Wanted, 'skill1' | 'pts1' | 'skill2' | 'pts2' | 'slots'>,
@@ -90,7 +92,8 @@ export function expandAtLeast(
 export const matches = (w: Wanted, c: Charm, skills: SkillInfo[]) =>
   covers(w, { id: '', compare: 'exact', ...c }, skills)
 
-/** 条件の種類 (その組み合わせの理論値と同じなら理論値、準理論値のどれかと同じなら準理論値、ほかはカスタム) */
+/** 条件の種類 (その組み合わせの理論値と同じなら理論値、準理論値のどれかと同じなら準理論値、ほかはカスタム。
+ * 同じかは入れた値で比べるので、理論値と同じ範囲でも「以上」で入れたものはカスタム) */
 export function modeOf(w: Wanted, skills: SkillInfo[]): WantedMode {
   const t = theoryOf(w.skill1, w.skill2, skills)
   if (!t) return 'custom'
@@ -184,7 +187,8 @@ export function groupTitle(w: Wanted, skills: SkillInfo[]): string {
   return `${first} × ${second}`
 }
 
-/** 条件を組み合わせでまとめる (組み合わせはスキルの番号の順で、問わず・なしは先。中はポイントの大きい順) */
+/** 条件を組み合わせでまとめる (組み合わせは第 1 スキル、第 2 スキルの番号の順で、問わず・なしは先。
+ * 中は第 1 スキルのポイント、第 2 スキルのポイント、スロットの大きい順) */
 export function groupWanted(wanted: Wanted[]): Wanted[][] {
   const order = (w: Wanted) => [w.skill1 ?? -1, w.skill2 ?? (w.compare === 'atLeast' ? -2 : -1)]
   const groups = new Map<string, Wanted[]>()

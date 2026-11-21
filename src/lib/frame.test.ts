@@ -1,6 +1,10 @@
 import { describe, expect, test } from 'vitest'
 
-import { parseFrame, roughTime, secondsToShortTime } from './frame'
+import { parseFrame, roughTime, secondsToShortTime, showFrame } from './frame'
+
+test('showFrame は桁区切りをしない', () => {
+  expect(showFrame(1234567)).toBe('1234567')
+})
 
 test('secondsToShortTime は 0 の上の単位を省き、後ろの単位を 2 桁にそろえる', () => {
   expect(secondsToShortTime(0)).toBe('0s')

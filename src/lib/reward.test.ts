@@ -23,6 +23,7 @@ test('rewardCharmOf は欄がそろったら検索に渡す形にし、足りな
     slots: 1,
   })
   expect(rewardCharmOf({ ...d, rarity: null })).toBeNull()
+  expect(rewardCharmOf({ ...d, skill1: null })).toBeNull()
   expect(rewardCharmOf({ ...d, pts1: null })).toBeNull()
   // 第 2 スキルを選んだのにポイントがない
   expect(rewardCharmOf({ ...d, skill2: 7 })).toBeNull()
@@ -30,5 +31,5 @@ test('rewardCharmOf は欄がそろったら検索に渡す形にし、足りな
 
 test('withoutZero は 0 ポイントを外し、windowLabel は時間か日で出す', () => {
   expect(withoutZero([-2, -1, 0, 1, 2])).toEqual([-2, -1, 1, 2])
-  expect([1, 12, 24, 72].map(windowLabel)).toEqual(['1時間', '12時間', '1日', '3日'])
+  expect([1, 3, 12, 24, 72, 168].map(windowLabel)).toEqual(['1時間', '3時間', '12時間', '1日', '3日', '7日'])
 })

@@ -7,20 +7,11 @@ import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Label } from '@/components/ui/label'
 import { impossibleReason } from '@/lib/core'
+import { planRegistration } from '@/lib/register'
 import { majorSkills, pointsFor, skillAbbr, skillsFor, type Slot } from '@/lib/skills'
 import type { Compare, SkillInfo } from '@/lib/types'
 import { cn } from '@/lib/utils'
-import {
-  covers,
-  EXPAND_LIMIT,
-  expandAtLeast,
-  sameWanted,
-  semisOf,
-  theoryOf,
-  wantedText,
-  type Wanted,
-  type WantedMode,
-} from '@/lib/watch'
+import { EXPAND_LIMIT, sameWanted, wantedText, type Wanted, type WantedMode } from '@/lib/watch'
 
 /** 登録のしかたの選択肢 */
 const MODES: [WantedMode, string][] = [
@@ -44,8 +35,8 @@ export function WantedForm({
   skills: SkillInfo[]
   /** 登録済みのもの (含まれる条件は登録させず、含む条件を登録したら含まれるものをまとめる) */
   wanted: Wanted[]
-  /** w を登録し、removed の id のもの (w に含まれる登録済みのもの) を消す */
-  onAdd: (w: Wanted, removed: string[]) => void
+  /** adding (まだ登録していない一致の条件) を登録する */
+  onAdd: (adding: Wanted[]) => void
 }) {
   /** スキルの選択肢を主要なものだけにするか */
   const [majorOnly, setMajorOnly] = useState(true)
@@ -62,8 +53,11 @@ export function WantedForm({
   /** 出ない組み合わせだった条件と、その理由 */
   const [rejected, setRejected] = useState<{ wanted: Wanted; message: string } | null>(null)
 
-  /** 選んだ組み合わせの理論値 (両方のスキルを決めていなければ null) */
-  const theory = theoryOf(skill1, skill2, skills)
+  const { theory, drafts, registered, tooMany, ready, pending, widerBy } = planRegistration(
+    { mode, skill1, skill2, compare, pts1, pts2, slots },
+    wanted,
+    skills,
+  )
 
   const atLeast = compare === 'atLeast'
   const suffix = atLeast ? ' 以上' : ''
@@ -84,27 +78,6 @@ export function WantedForm({
     pointsFor(range(id, slot)).map((p) => ({ value: p, label: `${p}${suffix}` }))
   const slotOptions: Option<number>[] = [0, 1, 2, 3].map((n) => ({ value: n, label: `${n}${suffix}` }))
 
-  /** 登録する一致の条件 (id は登録するときに付ける)。準理論値もなら理論値と 3 通りの準理論値、
-   * カスタムの「以上」なら範囲を展開したもの */
-  const drafts: Wanted[] = (
-    theory === null
-      ? []
-      : mode === 'custom'
-        ? atLeast
-          ? expandAtLeast({ skill1, pts1, skill2, pts2, slots }, skills)
-          : [{ compare: 'exact' as const, skill1, pts1, skill2, pts2, slots }]
-        : [theory, ...(mode === 'semi' ? semisOf(theory, skills) : [])]
-  ).map((d) => ({ ...d, id: '' }))
-  /** 「以上」の範囲が広すぎて、展開すると上限を超える */
-  const tooMany = drafts.length > EXPAND_LIMIT
-  const ready = drafts.length > 0 && !tooMany && drafts.every((d) => d.pts1 !== null && d.pts2 !== null)
-  // 重なる登録は操作ミスとみなし、広い条件だけを残す
-  /** 登録済みの条件に含まれる (同じ範囲のものも) か。含まれるものは登録しない */
-  const coveredBy = (d: Wanted) => wanted.find((w) => covers(w, d, skills))
-  /** まだ登録していない条件 */
-  const pending = ready ? drafts.filter((d) => !coveredBy(d)) : []
-  /** 登録する条件に含まれる登録済みのもの (登録するとまとめて消す) */
-  const absorbed = wanted.filter((w) => pending.some((d) => covers(d, w, skills)))
   /** いまの条件が出ない組み合わせなら、その理由 (欄を変えたら消える) */
   const impossible = rejected && drafts[0] && sameWanted(rejected.wanted, drafts[0]) ? rejected.message : null
 
@@ -119,15 +92,8 @@ export function WantedForm({
       setRejected({ wanted: drafts[0], message: reasons[0]! })
       return
     }
-    for (const d of ok) {
-      onAdd(
-        { ...d, id: crypto.randomUUID() },
-        absorbed.filter((w) => covers(d, w, skills)).map((w) => w.id),
-      )
-    }
+    onAdd(ok.map((d) => ({ ...d, id: crypto.randomUUID() })))
   }
-  /** 1 つだけ登録しようとしていて、それが登録済みのもっと広い条件に含まれるなら、その条件 (知らせに出す) */
-  const single = ready && drafts.length === 1 ? coveredBy(drafts[0]) : undefined
 
   return (
     <Card>
@@ -233,12 +199,12 @@ export function WantedForm({
           ) : (
             // 登録する一致の条件を札で並べる (理論値から下がったところだけ色を変え、登録済みのものは薄くする)
             <div className="flex flex-wrap gap-1.5">
-              {drafts.map((p) => (
+              {drafts.map((p, i) => (
                 <span
                   key={`${p.pts1}-${p.pts2}-${p.slots}`}
                   className={cn(
                     'rounded-full bg-muted px-2.5 py-0.5 text-xs font-semibold tabular-nums',
-                    coveredBy(p) && 'opacity-40',
+                    registered[i] && 'opacity-40',
                   )}
                 >
                   {skillAbbr(skills, p.skill1!)}
@@ -257,8 +223,8 @@ export function WantedForm({
             登録
           </Button>
           {ready && pending.length === 0 ? (
-            single && !covers(drafts[0], single, skills) ? (
-              <p className="text-sm text-muted-foreground">登録済みの「{wantedText(single, skills)}」に含まれます</p>
+            widerBy ? (
+              <p className="text-sm text-muted-foreground">登録済みの「{wantedText(widerBy, skills)}」に含まれます</p>
             ) : (
               // 同じ範囲。登録した直後もここに出る (登録できたことの知らせを兼ねる)
               <p className="flex items-center gap-1.5 text-sm text-success">
@@ -266,15 +232,10 @@ export function WantedForm({
                 登録済み
               </p>
             )
-          ) : impossible !== null ? (
-            // 1 行目が見出し、2 行目からお守りの種類ごとの理由
-            <p className="text-sm whitespace-pre-line text-destructive">{impossible}</p>
           ) : (
-            absorbed.length > 0 && (
-              <p className="text-sm text-muted-foreground">
-                登録すると、含まれる {absorbed.length} 件をまとめます (
-                {absorbed.map((w) => `「${wantedText(w, skills)}」`).join('')})
-              </p>
+            impossible !== null && (
+              // 1 行目が見出し、2 行目からお守りの種類ごとの理由
+              <p className="text-sm whitespace-pre-line text-destructive">{impossible}</p>
             )
           )}
         </div>

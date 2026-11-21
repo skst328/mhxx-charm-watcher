@@ -35,7 +35,8 @@ import { parseFrame } from '@/lib/frame'
 import { useStored } from '@/lib/storage'
 import { cn } from '@/lib/utils'
 import { FAMOUS } from '@/lib/famous'
-import { covers, GRID_HOURS, semisOf, wantedText, type Wanted } from '@/lib/watch'
+import { famousToAdd } from '@/lib/register'
+import { GRID_HOURS, wantedText, type Wanted } from '@/lib/watch'
 
 type Tab = 'watch' | 'register'
 
@@ -77,19 +78,11 @@ export default function App() {
 
   /** 有名な理論値護石を、準理論値も一緒に登録するか (前回の選択を覚えておく) */
   const [famousSemi, setFamousSemi] = useStored('famous-semi', false)
-  /** 有名な理論値護石 (準理論値もなら、それぞれの 3 通りの準理論値も) のうち、まだ登録していないもの。
-   * 登録済みの条件に含まれるもの (同じ範囲のものも) は登録済みとみなす */
-  const unregisteredFamous: Wanted[] = skills
-    ? FAMOUS.flatMap((f) => [f, ...(famousSemi ? semisOf(f, skills) : [])])
-        .map((f) => ({ ...f, id: '' }))
-        .filter((f) => !wanted.some((w) => covers(w, f, skills)))
-    : []
-  // まとめて登録する。フォームと同じく、足すものに含まれる登録済みのものは消す
-  const addFamous = () => {
-    if (skills === null) return
-    const adding = unregisteredFamous.map((f) => ({ ...f, id: crypto.randomUUID() }))
-    setWanted((prev) => [...prev.filter((p) => !adding.some((a) => covers(a, p, skills))), ...adding])
-  }
+  /** 有名な理論値護石 (準理論値もなら、それぞれの 3 通りの準理論値も) のうち、まだ登録していないもの */
+  const unregisteredFamous: Wanted[] = skills ? famousToAdd(FAMOUS, famousSemi, wanted, skills) : []
+  /** 登録する (フォームと有名な理論値護石のボタンから。どちらも、まだ登録していない一致の条件だけを渡す) */
+  const add = (adding: Wanted[]) => setWanted((prev) => [...prev, ...adding])
+  const addFamous = () => add(unregisteredFamous.map((f) => ({ ...f, id: crypto.randomUUID() })))
 
   const askRemove = (target: Wanted | { all: number }) => {
     setRemoving(target)
@@ -107,7 +100,7 @@ export default function App() {
     return wanted.toSorted((a, b) => (next(a) === next(b) ? 0 : next(a) - next(b)))
   }, [wanted, results])
 
-  // 条件ごとに、現在フレームから 3 日先までの錬金枠を探す (探すのは組み合わせごとに 1 回)
+  // 条件ごとに、現在フレームから 3 日先までの錬金枠を探す (まとめて探して振り分ける。watchEach)
   const check = async () => {
     if (current === null || skills === null) return
     setSearching(true)
@@ -231,11 +224,7 @@ export default function App() {
           </div>
 
           <div role="tabpanel" hidden={tab !== 'register'} className="space-y-6">
-            <WantedForm
-              skills={skills}
-              wanted={wanted}
-              onAdd={(w, removed) => setWanted((prev) => [...prev.filter((p) => !removed.includes(p.id)), w])}
-            />
+            <WantedForm skills={skills} wanted={wanted} onAdd={add} />
             <Card>
               <CardHeader>
                 <CardTitle>登録した護石</CardTitle>

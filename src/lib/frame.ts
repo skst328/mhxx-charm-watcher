@@ -20,7 +20,8 @@ export function roughTime(seconds: number): string {
   return `${Math.floor(m / 1440)}d ${String(Math.floor(m / 60) % 24).padStart(2, '0')}h`
 }
 
-/** フレームの番号として読めれば数、読めなければ null (0 以上の整数。カンマは無視する) */
+/** フレームの番号として読めれば数、読めなければ null (0 以上の整数。カンマと前後の空白は無視する。
+ * 数として正確に扱えない大きさは null) */
 export function parseFrame(text: string): number | null {
   const t = text.replaceAll(',', '').trim()
   if (!/^\d+$/.test(t)) return null

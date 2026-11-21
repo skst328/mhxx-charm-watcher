@@ -38,7 +38,7 @@ const FIRST = 'w-px pr-1 pl-2 sm:pr-3 sm:pl-3'
 
 /**
  * 錬金枠の表 (ナビの検索結果の表と同じ形): スキル (第 1 と第 2 を 2 行で)・スロット (ここまで錬金枠ごと) と、
- * 当たりフレーム・あと何時間か (狭い幅ではフレームの下に)・鑑定順 (当たりフレームごと)。
+ * 当たりフレーム・残り時間 (狭い幅ではフレームの下に)・鑑定順 (当たりフレームごと)。
  * 錬金枠ごとの列を縦に結合して、錬金枠 1 つに当たりフレームが何行か並ぶ形にする
  */
 export function GosekiTable({
@@ -49,7 +49,7 @@ export function GosekiTable({
 }: {
   skills: SkillInfo[]
   gosekis: Goseki[]
-  /** 現在フレーム (あと何時間かの起点) */
+  /** 現在フレーム (残り時間の起点) */
   from: number
   /** 表の枠に足すクラス */
   className?: string
@@ -69,7 +69,7 @@ export function GosekiTable({
             </th>
             {/* フレームと時間は桁がそろうように右寄せ */}
             <th className={cn(COLUMN, 'text-right')}>フレーム</th>
-            <th className={cn(COLUMN, 'hidden text-right sm:table-cell')}>あと</th>
+            <th className={cn(COLUMN, 'hidden text-right sm:table-cell')}>残り時間</th>
             <th className={cn(COLUMN, 'text-left')}>鑑定順</th>
             <th className="w-full" />
           </tr>
@@ -83,7 +83,7 @@ export function GosekiTable({
                 <td className={cn(COLUMN, 'text-right')}>
                   {showFrame(a.frame)}
                   {/* 狭い幅では時間の列を出さないので、フレームの下に小さく出す */}
-                  <div className="text-xs text-muted-foreground sm:hidden">あと {until(a.frame)}</div>
+                  <div className="text-xs text-muted-foreground sm:hidden">残り {until(a.frame)}</div>
                 </td>
                 <td className={cn(COLUMN, 'hidden text-right text-muted-foreground sm:table-cell')}>
                   {until(a.frame)}

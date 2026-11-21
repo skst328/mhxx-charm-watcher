@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { ChevronDownIcon, ChevronUpIcon, LoaderCircleIcon } from 'lucide-react'
+import { ChevronDownIcon, ChevronUpIcon, LoaderCircleIcon, Trash2Icon } from 'lucide-react'
 
 import { GosekiTable } from '@/components/goseki-table'
 import { HourGrid } from '@/components/hour-grid'
@@ -32,6 +32,7 @@ export function WantedCard({
   from,
   result,
   onOwned,
+  onRemove,
 }: {
   wanted: Wanted
   /** マカフシギ錬金で出るスキルとポイントの範囲 (名前を出すのと、詳細を探すのに使う) */
@@ -41,6 +42,8 @@ export function WantedCard({
   result: WatchResult | undefined
   /** 所持済みにする (ウォッチから外れる。戻すのは登録タブの一覧で) */
   onOwned: () => void
+  /** 登録を消す (確かめてから) */
+  onRemove: () => void
 }) {
   const [open, setOpen] = useState(false)
   const [detail, setDetail] = useState<WatchResult | null>(null)
@@ -64,13 +67,34 @@ export function WantedCard({
 
   return (
     <li className="space-y-2 rounded-lg border bg-card p-3">
-      <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm">
-        {label && <span className="rounded-full bg-muted px-2 py-0.5 text-xs font-semibold">{label}</span>}
-        <span className="font-semibold tabular-nums">{wantedText(w, skills)}</span>
-        <Button variant="outline" size="sm" className="ml-auto" onClick={onOwned}>
-          <OwnedCrownIcon />
-          所持済みにする
-        </Button>
+      {/* 条件は折り返してもよいが、右端のアイコンのボタンは折り返さない */}
+      <div className="flex items-center gap-2 text-sm">
+        <div className="flex min-w-0 flex-1 flex-wrap items-center gap-x-2 gap-y-1">
+          {label && <span className="rounded-full bg-muted px-2 py-0.5 text-xs font-semibold">{label}</span>}
+          <span className="font-semibold tabular-nums">{wantedText(w, skills)}</span>
+        </div>
+        <div className="flex shrink-0">
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            className="text-muted-foreground"
+            onClick={onOwned}
+            aria-label="所持済みにする"
+            title="所持済みにする"
+          >
+            <OwnedCrownIcon />
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            className="text-muted-foreground"
+            onClick={onRemove}
+            aria-label="この条件の登録を消す"
+            title="登録を消す"
+          >
+            <Trash2Icon />
+          </Button>
+        </div>
       </div>
 
       {result === undefined || from === null ? (

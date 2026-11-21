@@ -32,7 +32,7 @@ import { Input } from '@/components/ui/input'
 import { loadRewardSkills, loadSkills, watchEach, type RewardSkills, type WatchResult } from '@/lib/core'
 import { isAbort } from '@/lib/watching'
 import type { SkillInfo } from '@/lib/types'
-import { parseFrame } from '@/lib/frame'
+import { frameToShortTime, parseFrame } from '@/lib/frame'
 import { useStored } from '@/lib/storage'
 import { cn } from '@/lib/utils'
 import { FAMOUS } from '@/lib/famous'
@@ -208,6 +208,10 @@ export default function App() {
                   aria-invalid={frameText !== '' && current === null}
                   onChange={(e) => setFrameText(e.target.value)}
                 />
+                {/* ゲームを始めてからの時間。読めないフレームのときは出さない */}
+                {current !== null && (
+                  <p className="-mt-2 text-sm text-muted-foreground tabular-nums">{frameToShortTime(current)}</p>
+                )}
                 {/* 更新している間は、更新の代わりに中止を出す (別のボタンにして、色が移り変わらないようにする) */}
                 {searching ? (
                   <Button key="abort" variant="outline" onClick={() => abort.current?.abort()}>
@@ -243,6 +247,7 @@ export default function App() {
                         from={results?.from ?? null}
                         result={results?.byId[w.id]}
                         onOwned={() => toggleOwned(w)}
+                        onRemove={() => askRemove(w)}
                       />
                     ))}
                   </ul>

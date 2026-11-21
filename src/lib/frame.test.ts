@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'vitest'
 
-import { parseFrame, roughTime, secondsToShortTime, showFrame } from './frame'
+import { frameToShortTime, parseFrame, roughTime, secondsToShortTime, showFrame } from './frame'
+import { FPS } from './watch'
 
 test('showFrame は桁区切りをしない', () => {
   expect(showFrame(1234567)).toBe('1234567')
@@ -14,6 +15,14 @@ test('secondsToShortTime は 0 の上の単位を省き、後ろの単位を 2 �
   expect(secondsToShortTime(2 * 86400 + 3 * 3600)).toBe('2d 03h 00m 00s')
   // 秒は四捨五入
   expect(secondsToShortTime(85.7)).toBe('1m 26s')
+})
+
+test('frameToShortTime は secondsToShortTime の後ろにフレームを付ける (0 の上の単位は省き、後ろは 2 桁)', () => {
+  expect(frameToShortTime(0)).toBe('0f')
+  expect(frameToShortTime(20)).toBe('20f')
+  expect(frameToShortTime(FPS + 3)).toBe('1s 03f')
+  expect(frameToShortTime(20 * 60 * FPS + 8)).toBe('20m 00s 08f')
+  expect(frameToShortTime((5 * 86400 + 19 * 3600 + 31 * 60 + 50) * FPS + 20)).toBe('5d 19h 31m 50s 20f')
 })
 
 test('roughTime は上の 2 つの単位だけを出す', () => {

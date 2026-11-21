@@ -25,7 +25,7 @@ const exact = (id: string, pts1: number, pts2: number, slots: number): Wanted =>
 /** 条件をポイントとスロットだけにして比べやすくする */
 const pts = (ws: Wanted[]) => ws.map((w) => [w.pts1, w.pts2, w.slots])
 
-test('理論値は 1 件、準理論値もは理論値と 3 通りの準理論値の 4 件を、一致の条件として登録する', () => {
+test('理論値は 1 件、準理論値を含むは理論値と 3 通りの準理論値の 4 件を、一致の条件として登録する', () => {
   const theory = planRegistration(input, [], skills)
   expect(pts(theory.drafts)).toEqual([[4, 5, 3]])
   expect(theory.ready).toBe(true)
@@ -62,7 +62,7 @@ test('カスタムの「以上」は範囲を一致の条件に展開し、20 �
 })
 
 test('登録済みのものは登録せず (札は薄くする)、登録していないものだけを足す', () => {
-  // 準理論値を 1 つ (連撃3) 消した状態から、準理論値もで登録し直すと、その 1 つだけを足す
+  // 準理論値を 1 つ (連撃3) 消した状態から、準理論値を含むで登録し直すと、その 1 つだけを足す
   const wanted = [exact('a', 4, 5, 3), exact('b', 4, 4, 3), exact('c', 4, 5, 2)]
   const plan = planRegistration({ ...input, mode: 'semi' }, wanted, skills)
   expect(plan.registered).toEqual([true, false, true, true])
@@ -73,14 +73,14 @@ test('登録済みのものは登録せず (札は薄くする)、登録して�
   expect([done.ready, done.pending]).toEqual([true, []])
 })
 
-test('理論値と準理論値もでは、カスタムの欄 (比べ方・ポイント・スロット) は使わない', () => {
+test('理論値と準理論値を含むでは、カスタムの欄 (比べ方・ポイント・スロット) は使わない', () => {
   const custom = { compare: 'exact' as const, pts1: 2, pts2: 2, slots: 1 }
   expect(pts(planRegistration({ ...input, ...custom }, [], skills).drafts)).toEqual([[4, 5, 3]])
   expect(planRegistration({ ...input, ...custom, mode: 'semi' }, [], skills).drafts).toHaveLength(4)
 })
 
 test('所持済みの条件も登録済みに数える (足さない)。所持済みかは owned で分かる', () => {
-  // 準理論値の 連撃3 を所持済みにした状態で、準理論値もで登録し直す
+  // 準理論値の 連撃3 を所持済みにした状態で、準理論値を含むで登録し直す
   const wanted = [exact('a', 4, 5, 3), { ...exact('b', 3, 5, 3), owned: true }]
   const plan = planRegistration({ ...input, mode: 'semi' }, wanted, skills)
   expect(plan.registered).toEqual([true, true, false, false])
@@ -104,11 +104,11 @@ test('前に「以上」で登録した広い条件に含まれるなら、登�
   expect([samePlan.pending, samePlan.widerBy]).toEqual([[], undefined])
 })
 
-test('famousToAdd は登録していない理論値 (準理論値もなら 3 通りの準理論値も) だけを出す', () => {
+test('famousToAdd は登録していない理論値 (準理論値を含むなら 3 通りの準理論値も) だけを出す', () => {
   const famous: Omit<Wanted, 'id'>[] = [{ compare: 'exact', skill1: 1, pts1: 4, skill2: 2, pts2: 5, slots: 3 }]
   expect(pts(famousToAdd(famous, false, [], skills))).toEqual([[4, 5, 3]])
   expect(famousToAdd(famous, true, [], skills)).toHaveLength(4)
-  // 理論値を登録済みなら、準理論値もでは 3 通りの準理論値だけ
+  // 理論値を登録済みなら、準理論値を含むでは 3 通りの準理論値だけ
   expect(pts(famousToAdd(famous, true, [exact('a', 4, 5, 3)], skills))).toEqual([
     [3, 5, 3],
     [4, 4, 3],

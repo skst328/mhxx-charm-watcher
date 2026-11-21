@@ -79,7 +79,7 @@ export default function App() {
 
   /** 有名な理論値護石を、準理論値も一緒に登録するか (前回の選択を覚えておく) */
   const [famousSemi, setFamousSemi] = useStored('famous-semi', false)
-  /** 有名な理論値護石 (準理論値もなら、それぞれの 3 通りの準理論値も) のうち、まだ登録していないもの */
+  /** 有名な理論値護石 (準理論値を含むなら、それぞれの 3 通りの準理論値も) のうち、まだ登録していないもの */
   const unregisteredFamous: Wanted[] = skills ? famousToAdd(FAMOUS, famousSemi, wanted, skills) : []
   /** 登録する (フォームと有名な理論値護石のボタンから。どちらも、まだ登録していない一致の条件だけを渡す) */
   const add = (adding: Wanted[]) => setWanted((prev) => [...prev, ...adding])
@@ -132,6 +132,10 @@ export default function App() {
           <span className="text-2xl font-bold tracking-tight sm:text-3xl">MHXX 護石ウォッチャー</span>
           <span className="text-base font-normal whitespace-nowrap text-muted-foreground tabular-nums sm:text-lg">
             v{__APP_VERSION__}
+          </span>
+          {/* まだ実際のゲームでの確かめが足りないので、ベータ版と分かるようにする */}
+          <span className="self-center rounded-full border px-2 py-0.5 text-xs font-medium text-muted-foreground">
+            ベータ版
           </span>
         </h1>
         <ThemeToggle />
@@ -281,7 +285,7 @@ export default function App() {
                     {(
                       [
                         [false, '理論値のみ'],
-                        [true, '準理論値も'],
+                        [true, '準理論値を含む'],
                       ] as const
                     ).map(([value, label]) => (
                       <Button

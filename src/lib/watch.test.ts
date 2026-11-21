@@ -3,16 +3,20 @@ import { expect, test } from 'vitest'
 import type { Found, SkillInfo } from './types'
 import {
   charmsOf,
+  conditionText,
   covers,
+  expandAtLeast,
   gosekiIn,
+  groupTitle,
+  groupWanted,
   HOUR,
   hourlyAims,
+  matches,
   modeOf,
-  piecesOf,
   sameWanted,
+  semisOf,
   shade,
   theoryOf,
-  wantedChips,
   wantedText,
   type Wanted,
 } from './watch'
@@ -53,35 +57,84 @@ test('wantedText は比べ方で「以上」「問わず」「なし」を書き
   expect(wantedText(wanted, skills)).toBe('連撃4以上 痛撃5以上 S3以上')
   expect(wantedText({ ...wanted, skill1: null, skill2: null }, skills)).toBe('第1問わず 第2問わず S3以上')
   expect(wantedText({ ...wanted, compare: 'exact', skill2: null }, skills)).toBe('連撃4 第2なし S3')
-  expect(wantedText({ ...wanted, compare: 'exact', semi: true }, skills)).toBe('連撃4 痛撃5 S3 (準理論値も)')
 })
 
-test('theoryOf は組み合わせの最大のポイントと S3 の一致、modeOf は登録のしかたを出す', () => {
+test('theoryOf は組み合わせの最大のポイントと S3 の一致、semisOf は 1 か所だけ下がった 3 通りを出す', () => {
   // 連撃は第 1 スキルで最大 4、痛撃は第 2 スキルで最大 5
-  const theory = theoryOf(1, 2, skills)
+  const theory = theoryOf(1, 2, skills)!
   expect(theory).toEqual({ compare: 'exact', skill1: 1, pts1: 4, skill2: 2, pts2: 5, slots: 3 })
   // スキルを決めていない・同じスキル・その欄に出ないスキルなら理論値はない
   expect([theoryOf(1, null, skills), theoryOf(1, 1, skills), theoryOf(2, 1, skills)]).toEqual([null, null, null])
-  expect(modeOf({ ...theory!, id: 'x' }, skills)).toBe('theory')
-  expect(modeOf({ ...theory!, id: 'x', semi: true }, skills)).toBe('semi')
-  // 理論値と同じ範囲でも「以上」で入れたものや、ポイントが違うものはカスタム
-  expect(modeOf(wanted, skills)).toBe('custom')
-  expect(modeOf({ ...theory!, id: 'x', pts2: 4 }, skills)).toBe('custom')
+  const pts = (ws: Omit<Wanted, 'id'>[]) => ws.map((p) => [p.pts1, p.pts2, p.slots])
+  expect(pts(semisOf(theory, skills))).toEqual([
+    [3, 5, 3],
+    [4, 4, 3],
+    [4, 5, 2],
+  ])
+  // 第 1 スキルの最小より下は準理論値にしない (気まぐれは第 1 スキルで 2〜3)
+  expect(pts(semisOf({ ...theory, skill1: 3, pts1: 2 }, skills))).toEqual([
+    [2, 4, 3],
+    [2, 5, 2],
+  ])
 })
 
-test('wantedChips はスキルとスロットを札にする', () => {
-  expect(wantedChips(wanted, skills)).toEqual(['連撃4以上', '痛撃5以上', 'S3以上'])
-  expect(wantedChips({ ...wanted, compare: 'exact', skill1: 3, pts1: 2, skill2: null }, skills)).toEqual([
-    '気まぐれ2',
-    '第2なし',
-    'S3',
+test('modeOf は理論値・準理論値・カスタムを見分ける', () => {
+  const theory = { ...theoryOf(1, 2, skills)!, id: 'x' }
+  expect(modeOf(theory, skills)).toBe('theory')
+  for (const s of semisOf(theory, skills)) expect(modeOf({ ...s, id: 'y' }, skills)).toBe('semi')
+  // 理論値と同じ範囲でも「以上」で入れたもの、2 か所下がったものはカスタム
+  expect(modeOf(wanted, skills)).toBe('custom')
+  expect(modeOf({ ...theory, pts1: 3, pts2: 4 }, skills)).toBe('custom')
+})
+
+test('conditionText はポイントとスロットを、groupTitle は組み合わせの名前を出す', () => {
+  expect(conditionText(wanted)).toBe('4以上・5以上・S3以上')
+  expect(conditionText({ ...wanted, compare: 'exact', skill2: null, pts2: null })).toBe('4・S3')
+  expect(groupTitle(wanted, skills)).toBe('連撃 × 痛撃')
+  expect(groupTitle({ ...wanted, skill1: null, skill2: null }, skills)).toBe('第1問わず × 第2問わず')
+  expect(groupTitle({ ...wanted, compare: 'exact', skill2: null }, skills)).toBe('連撃 × 第2なし')
+})
+
+test('groupWanted は組み合わせでまとめ、組み合わせはスキルの順、中はポイントの大きい順に並べる', () => {
+  const w = (id: string, p: Partial<Wanted>): Wanted => ({ ...wanted, id, ...p })
+  const groups = groupWanted([
+    w('a', { pts1: 3 }),
+    w('b', { skill1: 3, pts1: 2 }),
+    w('c', {}),
+    // 第 2 スキル問わず (以上) となし (一致) は別の組み合わせ
+    w('d', { skill2: null, pts2: null }),
+    w('e', { compare: 'exact', skill2: null, pts2: null }),
   ])
+  expect(groups.map((g) => g.map((x) => x.id))).toEqual([['d'], ['e'], ['c', 'a'], ['b']])
+})
+
+test('expandAtLeast は「以上」の範囲を一致の条件に展開し、matches は中身が条件に当たるかを見る', () => {
+  // 連撃 (第 1 スキル 1〜4) 3以上 × 痛撃 (第 2 スキル 1〜5) 4以上 × S2以上 = 2 × 2 × 2 = 8 件。ポイントの大きい順
+  const range = { skill1: 1, pts1: 3, skill2: 2, pts2: 4, slots: 2 }
+  const all = expandAtLeast(range, skills)
+  expect(all.map((w) => [w.pts1, w.pts2, w.slots])).toEqual([
+    [4, 5, 3],
+    [4, 5, 2],
+    [4, 4, 3],
+    [4, 4, 2],
+    [3, 5, 3],
+    [3, 5, 2],
+    [3, 4, 3],
+    [3, 4, 2],
+  ])
+  expect(all.every((w) => w.compare === 'exact')).toBe(true)
+  // 最小より小さい指定は最小から (気まぐれは第 1 スキルで 2〜3)。スキルを決めていなければ空
+  expect(expandAtLeast({ ...range, skill1: 3, pts1: 1, pts2: 5, slots: 3 }, skills)).toHaveLength(2)
+  expect(expandAtLeast({ ...range, skill2: null }, skills)).toEqual([])
+  const charm = { skill1: 1, pts1: 4, skill2: 2, pts2: 4, slots: 3 }
+  expect(matches({ ...all[2], id: 'x' }, charm, skills)).toBe(true)
+  expect(matches({ ...all[0], id: 'x' }, charm, skills)).toBe(false)
+  expect(matches(wanted, { ...charm, pts2: 5 }, skills)).toBe(true)
 })
 
 test('sameWanted は id 以外の条件がすべて同じかを見る', () => {
   expect(sameWanted(wanted, { ...wanted, id: 'b' })).toBe(true)
   expect(sameWanted(wanted, { ...wanted, id: 'b', pts2: 4 })).toBe(false)
-  expect(sameWanted(wanted, { ...wanted, id: 'b', semi: true })).toBe(false)
 })
 
 test('covers は欄ごとに当たる範囲を比べ、含むかを見る', () => {
@@ -101,36 +154,6 @@ test('covers は欄ごとに当たる範囲を比べ、含むかを見る', () =
   expect(both(none, c({ compare: 'exact' }))).toEqual([false, false])
   // 最小より小さい「以上」は最小からと同じ (気まぐれは第 1 スキルで 2〜3)
   expect(both(c({ skill1: 3, pts1: 1 }), c({ skill1: 3, pts1: 2 }))).toEqual([true, true])
-})
-
-test('準理論値もの条件は、理論値と 3 通りの準理論値の集まりとして探し、比べる', () => {
-  // 連撃4 痛撃5 S3 は、連撃 (第 1 スキル 1〜4) も痛撃 (第 2 スキル 1〜5) も最大の理論値
-  const theory: Wanted = { ...wanted, compare: 'exact' }
-  const semi: Wanted = { ...theory, semi: true }
-  const pts = (w: Wanted) => piecesOf(w, skills).map((p) => [p.pts1, p.pts2, p.slots])
-  expect(pts(semi)).toEqual([
-    [4, 5, 3],
-    [3, 5, 3],
-    [4, 4, 3],
-    [4, 5, 2],
-  ])
-  expect(charmsOf(semi, skills)).toHaveLength(4)
-  expect(wantedChips(semi, skills)).toEqual(['準理論値も', '連撃4', '痛撃5', 'S3'])
-  expect(wantedChips(theory, skills)).toEqual(['理論値', '連撃4', '痛撃5', 'S3'])
-  const both = (a: Wanted, b: Wanted) => [covers(a, b, skills), covers(b, a, skills)]
-  expect(both(semi, theory)).toEqual([true, false])
-  // 理論値で S2 以上は、理論値と S2 の準理論値の 2 つに分かれて含まれる
-  expect(both(semi, { ...wanted, slots: 2 })).toEqual([true, false])
-  // 2 か所足りないものは準理論値ではない
-  expect(both(semi, { ...theory, pts1: 3, pts2: 4 })).toEqual([false, false])
-  // 広い「以上」は準理論値もを含む
-  expect(both({ ...wanted, pts1: 3, pts2: 4, slots: 2 }, semi)).toEqual([true, false])
-  // 第 1 スキルの最小より下は準理論値にしない (気まぐれは第 1 スキルで 2〜3)
-  expect(pts({ ...semi, skill1: 3, pts1: 2 })).toEqual([
-    [2, 5, 3],
-    [2, 4, 3],
-    [2, 5, 2],
-  ])
 })
 
 const charm = { skill1: 1, pts1: 4, skill2: null, pts2: null, slots: 3 }

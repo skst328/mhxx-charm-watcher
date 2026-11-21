@@ -9,7 +9,18 @@ import { Label } from '@/components/ui/label'
 import { impossibleReason } from '@/lib/core'
 import { majorSkills, pointsFor, skillAbbr, skillsFor, type Slot } from '@/lib/skills'
 import type { Compare, SkillInfo } from '@/lib/types'
-import { covers, piecesOf, sameWanted, theoryOf, wantedText, type Wanted, type WantedMode } from '@/lib/watch'
+import { cn } from '@/lib/utils'
+import {
+  covers,
+  EXPAND_LIMIT,
+  expandAtLeast,
+  sameWanted,
+  semisOf,
+  theoryOf,
+  wantedText,
+  type Wanted,
+  type WantedMode,
+} from '@/lib/watch'
 
 /** 登録のしかたの選択肢 */
 const MODES: [WantedMode, string][] = [
@@ -20,9 +31,9 @@ const MODES: [WantedMode, string][] = [
 
 /**
  * 欲しい護石を登録する (マカフシギ錬金。お守りの種類は選ばず、出るどの種類でも探す)。
- * 先に第 1 スキル × 第 2 スキルの組み合わせを選び、登録のしかたを理論値・準理論値も・カスタムから選ぶ。
- * 理論値と準理論値もは、両方のスキルを決めたときだけ選べる (問わず・なしはカスタムだけ)。
- * 登録しても欄は残す (似た条件を続けて登録できるように)
+ * 先に第 1 スキル × 第 2 スキルの組み合わせを選び (両方とも決める)、登録のしかたを理論値・準理論値も・カスタムから
+ * 選ぶ。登録するのはいつも一致の条件で、準理論値もは理論値と 3 通りの準理論値、カスタムの「以上」は範囲の一致の
+ * 条件に展開する (EXPAND_LIMIT 件まで)。登録しても欄は残す (似た条件を続けて登録できるように)
  */
 export function WantedForm({
   skills,
@@ -53,8 +64,7 @@ export function WantedForm({
 
   /** 選んだ組み合わせの理論値 (両方のスキルを決めていなければ null) */
   const theory = theoryOf(skill1, skill2, skills)
-  /** 実際の登録のしかた (理論値を決められない組み合わせはカスタムだけ) */
-  const effective: WantedMode = theory ? mode : 'custom'
+
   const atLeast = compare === 'atLeast'
   const suffix = atLeast ? ' 以上' : ''
   const range = (id: number | null, slot: Slot) => skills.find((s) => s.id === id)?.[slot]
@@ -74,37 +84,50 @@ export function WantedForm({
     pointsFor(range(id, slot)).map((p) => ({ value: p, label: `${p}${suffix}` }))
   const slotOptions: Option<number>[] = [0, 1, 2, 3].map((n) => ({ value: n, label: `${n}${suffix}` }))
 
-  /** いまの欄の条件 (id は登録するときに付け直す) */
-  const draft: Wanted =
-    effective === 'custom' || theory === null
-      ? { id: '', compare, skill1, pts1, skill2, pts2, slots }
-      : { ...theory, id: '', semi: effective === 'semi' }
-  // カスタムでは、第 1 スキルは「以上」なら問わなくてよい (「一致」では決める)。ただし第 2 スキルも問わないと、
-  // スロットだけの条件になって何でも当たるので、登録させない
-  const ready =
-    effective !== 'custom' ||
-    (skill1 === null ? atLeast && skill2 !== null : pts1 !== null && (skill2 === null || pts2 !== null))
+  /** 登録する一致の条件 (id は登録するときに付ける)。準理論値もなら理論値と 3 通りの準理論値、
+   * カスタムの「以上」なら範囲を展開したもの */
+  const drafts: Wanted[] = (
+    theory === null
+      ? []
+      : mode === 'custom'
+        ? atLeast
+          ? expandAtLeast({ skill1, pts1, skill2, pts2, slots }, skills)
+          : [{ compare: 'exact' as const, skill1, pts1, skill2, pts2, slots }]
+        : [theory, ...(mode === 'semi' ? semisOf(theory, skills) : [])]
+  ).map((d) => ({ ...d, id: '' }))
+  /** 「以上」の範囲が広すぎて、展開すると上限を超える */
+  const tooMany = drafts.length > EXPAND_LIMIT
+  const ready = drafts.length > 0 && !tooMany && drafts.every((d) => d.pts1 !== null && d.pts2 !== null)
   // 重なる登録は操作ミスとみなし、広い条件だけを残す
-  /** いまの条件を含む登録済みのもの (あれば登録させない。同じ範囲のものも含む) */
-  const coveredBy = ready ? wanted.find((w) => covers(w, draft, skills)) : undefined
-  /** いまの条件に含まれる登録済みのもの (登録するとまとめて消す) */
-  const absorbed = ready && !coveredBy ? wanted.filter((w) => covers(draft, w, skills)) : []
+  /** 登録済みの条件に含まれる (同じ範囲のものも) か。含まれるものは登録しない */
+  const coveredBy = (d: Wanted) => wanted.find((w) => covers(w, d, skills))
+  /** まだ登録していない条件 */
+  const pending = ready ? drafts.filter((d) => !coveredBy(d)) : []
+  /** 登録する条件に含まれる登録済みのもの (登録するとまとめて消す) */
+  const absorbed = wanted.filter((w) => pending.some((d) => covers(d, w, skills)))
   /** いまの条件が出ない組み合わせなら、その理由 (欄を変えたら消える) */
-  const impossible = rejected && sameWanted(rejected.wanted, draft) ? rejected.message : null
+  const impossible = rejected && drafts[0] && sameWanted(rejected.wanted, drafts[0]) ? rejected.message : null
 
-  // 出ない組み合わせは登録させない (ウォッチで更新したときに初めて分かるのでは遅いので)
+  // 出ない条件は登録させない (ウォッチで更新したときに初めて分かるのでは遅いので)。準理論値で出ないものは飛ばす
   const add = async () => {
-    if (!ready || coveredBy) return
+    if (pending.length === 0) return
     setChecking(true)
-    const message = await impossibleReason(draft, skills)
+    const reasons = await Promise.all(pending.map((d) => impossibleReason(d, skills)))
     setChecking(false)
-    if (message !== null) setRejected({ wanted: draft, message })
-    else
+    const ok = pending.filter((_, i) => reasons[i] === null)
+    if (ok.length === 0) {
+      setRejected({ wanted: drafts[0], message: reasons[0]! })
+      return
+    }
+    for (const d of ok) {
       onAdd(
-        { ...draft, id: crypto.randomUUID() },
-        absorbed.map((w) => w.id),
+        { ...d, id: crypto.randomUUID() },
+        absorbed.filter((w) => covers(d, w, skills)).map((w) => w.id),
       )
+    }
   }
+  /** 1 つだけ登録しようとしていて、それが登録済みのもっと広い条件に含まれるなら、その条件 (知らせに出す) */
+  const single = ready && drafts.length === 1 ? coveredBy(drafts[0]) : undefined
 
   return (
     <Card>
@@ -131,17 +154,15 @@ export function WantedForm({
                 value={skill1}
                 onChange={pickSkill1}
                 placeholder="スキル"
-                noneLabel="問わない"
               />
             </Field>
             <Field label="第2スキル" htmlFor="skill2">
               <SkillCombobox
-                // カスタムの「一致」なら第 2 スキルなし、ほかは問わない
                 id="skill2"
                 skills={choices('pts2', skill2)}
                 value={skill2}
                 onChange={pickSkill2}
-                noneLabel={effective === 'custom' && !atLeast ? 'なし' : '問わない'}
+                placeholder="スキル"
               />
             </Field>
           </div>
@@ -154,34 +175,16 @@ export function WantedForm({
               <Button
                 key={value}
                 size="sm"
-                variant={effective === value ? 'default' : 'outline'}
+                variant={mode === value ? 'default' : 'outline'}
                 role="radio"
-                aria-checked={effective === value}
-                disabled={value !== 'custom' && theory === null}
+                aria-checked={mode === value}
                 onClick={() => setMode(value)}
               >
                 {label}
               </Button>
             ))}
           </div>
-          {theory === null && (skill1 === null || skill2 === null) && (
-            <p className="text-xs text-muted-foreground">第 1・第 2 スキルを両方選ぶと、理論値・準理論値もを選べます</p>
-          )}
-          {effective !== 'custom' && theory ? (
-            // 当たる中身を札で並べる (準理論値もなら 4 枚。理論値から下がったところだけ色を変える)
-            <div className="flex flex-wrap gap-1.5">
-              {piecesOf(draft, skills).map((p) => (
-                <span
-                  key={`${p.pts1}-${p.pts2}-${p.slots}`}
-                  className="rounded-full bg-muted px-2.5 py-0.5 text-xs font-semibold tabular-nums"
-                >
-                  {skillAbbr(skills, p.skill1!)}
-                  <Lowered value={p.pts1!} theory={theory.pts1!} /> {skillAbbr(skills, p.skill2!)}
-                  <Lowered value={p.pts2!} theory={theory.pts2!} /> S<Lowered value={p.slots} theory={3} />
-                </span>
-              ))}
-            </div>
-          ) : (
+          {mode === 'custom' && (
             <div className="space-y-3">
               <Toggle
                 label="条件"
@@ -193,8 +196,9 @@ export function WantedForm({
                 ]}
               />
               <div className="grid grid-cols-3 gap-2">
-                <Field label="第1スキル">
+                <Field label="第1スキル" htmlFor="pts1">
                   <ValueSelect
+                    id="pts1"
                     value={pts1}
                     onChange={setPts1}
                     options={points(skill1, 'pts1')}
@@ -203,8 +207,9 @@ export function WantedForm({
                     disabled={skill1 === null}
                   />
                 </Field>
-                <Field label="第2スキル">
+                <Field label="第2スキル" htmlFor="pts2">
                   <ValueSelect
+                    id="pts2"
                     value={pts2}
                     onChange={setPts2}
                     options={points(skill2, 'pts2')}
@@ -213,29 +218,53 @@ export function WantedForm({
                     disabled={skill2 === null}
                   />
                 </Field>
-                <Field label="スロット">
-                  <ValueSelect value={slots} onChange={setSlots} options={slotOptions} className="w-full" />
+                <Field label="スロット" htmlFor="slots">
+                  <ValueSelect id="slots" value={slots} onChange={setSlots} options={slotOptions} className="w-full" />
                 </Field>
               </div>
+            </div>
+          )}
+          {theory === null ? (
+            <p className="text-xs text-muted-foreground">第 1・第 2 スキルを選んでください</p>
+          ) : tooMany ? (
+            <p className="text-sm text-warning">
+              範囲が広すぎます ({drafts.length} 件)。{EXPAND_LIMIT} 件以下になるように狭めてください
+            </p>
+          ) : (
+            // 登録する一致の条件を札で並べる (理論値から下がったところだけ色を変え、登録済みのものは薄くする)
+            <div className="flex flex-wrap gap-1.5">
+              {drafts.map((p) => (
+                <span
+                  key={`${p.pts1}-${p.pts2}-${p.slots}`}
+                  className={cn(
+                    'rounded-full bg-muted px-2.5 py-0.5 text-xs font-semibold tabular-nums',
+                    coveredBy(p) && 'opacity-40',
+                  )}
+                >
+                  {skillAbbr(skills, p.skill1!)}
+                  <Lowered value={p.pts1!} theory={theory.pts1!} /> {skillAbbr(skills, p.skill2!)}
+                  <Lowered value={p.pts2!} theory={theory.pts2!} /> S<Lowered value={p.slots} theory={3} />
+                </span>
+              ))}
             </div>
           )}
         </div>
 
         {/* 3. 登録 */}
         <div className="space-y-2 border-t pt-4">
-          <Button onClick={add} disabled={!ready || coveredBy !== undefined || checking || impossible !== null}>
+          <Button onClick={add} disabled={pending.length === 0 || checking || impossible !== null}>
             {checking ? <LoaderCircleIcon className="animate-spin" /> : <PlusIcon />}
             登録
           </Button>
-          {coveredBy !== undefined ? (
-            covers(draft, coveredBy, skills) ? (
+          {ready && pending.length === 0 ? (
+            single && !covers(drafts[0], single, skills) ? (
+              <p className="text-sm text-muted-foreground">登録済みの「{wantedText(single, skills)}」に含まれます</p>
+            ) : (
               // 同じ範囲。登録した直後もここに出る (登録できたことの知らせを兼ねる)
               <p className="flex items-center gap-1.5 text-sm text-success">
                 <CheckIcon className="size-4 shrink-0" />
                 登録済み
               </p>
-            ) : (
-              <p className="text-sm text-muted-foreground">登録済みの「{wantedText(coveredBy, skills)}」に含まれます</p>
             )
           ) : impossible !== null ? (
             // 1 行目が見出し、2 行目からお守りの種類ごとの理由

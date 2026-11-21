@@ -31,13 +31,13 @@ export interface Wanted {
   skill2: number | null
   pts2: number | null
   slots: number
-  /** 準理論値も当てる (理論値を「一致」で登録したものにだけ付ける)。理論値に加えて、第 1 スキルが 1 少ない・
-   * 第 2 スキルが 1 少ない・スロットが 2 の、どれか 1 つだけ違うものも当たる */
-  semi?: boolean
 }
 
-/** 登録のしかた: 理論値・準理論値も・カスタム (ポイントやスロットを自分で決めたもの) */
+/** 条件の種類: 理論値・準理論値 (理論値から 1 か所だけ下がった一致)・カスタム (ほかの条件) */
 export type WantedMode = 'theory' | 'semi' | 'custom'
+
+/** 条件の種類の名前 (札の頭に付ける。カスタムは付けない) */
+export const MODE_LABEL: Record<WantedMode, string | null> = { theory: '理論値', semi: '準理論値', custom: null }
 
 /**
  * 第 1 スキル × 第 2 スキルの理論値 (どちらもマカフシギ錬金で出る最大のポイントで、スロット 3 を一致で)。
@@ -52,27 +52,55 @@ export function theoryOf(skill1: number | null, skill2: number | null, skills: S
   return { compare: 'exact', skill1, pts1: max1, skill2, pts2: max2, slots: 3 }
 }
 
-/** 条件の登録のしかた (準理論値もの印があれば準理論値も、その組み合わせの理論値と同じなら理論値、ほかはカスタム) */
-export function modeOf(w: Wanted, skills: SkillInfo[]): WantedMode {
-  if (w.semi) return 'semi'
-  const t = theoryOf(w.skill1, w.skill2, skills)
-  return t && sameWanted(w, { ...t, id: w.id }) ? 'theory' : 'custom'
+/** 理論値から 1 か所だけ下がった準理論値 3 通り (第 1 スキルが 1 少ない・第 2 スキルが 1 少ない・スロット 2)。
+ * 出ないポイントになるものは外す */
+export function semisOf(theory: Omit<Wanted, 'id'>, skills: SkillInfo[]): Omit<Wanted, 'id'>[] {
+  const min1 = skills.find((s) => s.id === theory.skill1)?.pts1?.min ?? 1
+  return [
+    { ...theory, pts1: theory.pts1! - 1 },
+    { ...theory, pts2: theory.pts2! - 1 },
+    { ...theory, slots: 2 },
+  ].filter((p) => p.pts1! >= min1 && p.pts2! >= 1)
 }
 
-/** 条件を、印の付いていない条件の集まりにする (準理論値もなら、理論値と 3 通りの準理論値。出ないポイントのものは外す) */
-export function piecesOf(w: Wanted, skills: SkillInfo[]): Wanted[] {
-  if (!w.semi) return [w]
-  const base = { ...w, semi: false }
-  const min1 = skills.find((s) => s.id === w.skill1)?.pts1?.min ?? 1
-  return [base, { ...base, pts1: w.pts1! - 1 }, { ...base, pts2: w.pts2! - 1 }, { ...base, slots: 2 }].filter(
-    (p) => p.pts1! >= min1 && p.pts2! >= 1,
+/** 「以上」で登録するときに展開する一致の条件の数の上限 (これより多い範囲は狭めてもらう) */
+export const EXPAND_LIMIT = 20
+
+/**
+ * 「以上」の範囲を、一致の条件の集まりに展開する (ポイントは指定からその欄で出る最大まで、最小より小さい指定は
+ * 最小から。スロットは指定から 3 まで)。ポイントの大きい順。スキルを決めていないか、その欄に出ないなら空
+ */
+export function expandAtLeast(
+  range: Pick<Wanted, 'skill1' | 'pts1' | 'skill2' | 'pts2' | 'slots'>,
+  skills: SkillInfo[],
+): Omit<Wanted, 'id'>[] {
+  const { skill1, pts1: lo1, skill2, pts2: lo2 } = range
+  const r1 = skills.find((s) => s.id === skill1)?.pts1
+  const r2 = skills.find((s) => s.id === skill2)?.pts2
+  if (skill1 === null || skill2 === null || !r1 || !r2 || lo1 === null || lo2 === null) return []
+  const down = (from: number, to: number) => Array.from({ length: Math.max(0, from - to + 1) }, (_, i) => from - i)
+  return down(r1.max, Math.max(lo1, r1.min)).flatMap((pts1) =>
+    down(r2.max, Math.max(lo2, r2.min)).flatMap((pts2) =>
+      down(3, range.slots).map((slots) => ({ compare: 'exact' as const, skill1, pts1, skill2, pts2, slots })),
+    ),
   )
 }
 
+/** 見つけた護石の中身が、条件に当たるか */
+export const matches = (w: Wanted, c: Charm, skills: SkillInfo[]) =>
+  covers(w, { id: '', compare: 'exact', ...c }, skills)
+
+/** 条件の種類 (その組み合わせの理論値と同じなら理論値、準理論値のどれかと同じなら準理論値、ほかはカスタム) */
+export function modeOf(w: Wanted, skills: SkillInfo[]): WantedMode {
+  const t = theoryOf(w.skill1, w.skill2, skills)
+  if (!t) return 'custom'
+  if (sameWanted(w, { ...t, id: w.id })) return 'theory'
+  return semisOf(t, skills).some((s) => sameWanted(w, { ...s, id: w.id })) ? 'semi' : 'custom'
+}
+
 /** 欲しい護石の条件を、wasm の検索に渡す護石の一覧にする。第 1 スキルを問わないときは、第 1 スキルに出るスキル
- * ごとに、その最小のポイント以上で探す (出ない組み合わせは wasm 側で飛ばす)。準理論値もなら、4 通りを並べる */
+ * ごとに、その最小のポイント以上で探す (出ない組み合わせは wasm 側で飛ばす) */
 export function charmsOf(w: Wanted, skills: SkillInfo[]): Charm[] {
-  if (w.semi) return piecesOf(w, skills).flatMap((p) => charmsOf(p, skills))
   const second = { skill2: w.skill2, pts2: w.skill2 === null ? null : w.pts2, slots: w.slots }
   if (w.skill1 === null) {
     return skills.flatMap((s) => (s.pts1 ? [{ skill1: s.id, pts1: s.pts1.min, ...second }] : []))
@@ -87,12 +115,11 @@ export function wantedText(w: Wanted, skills: SkillInfo[]): string {
   const first = w.skill1 === null ? '第1問わず' : `${skillName(skills, w.skill1)}${w.pts1}${suffix}`
   const second =
     w.skill2 === null ? (atLeast ? '第2問わず' : '第2なし') : `${skillName(skills, w.skill2)}${w.pts2}${suffix}`
-  return `${first} ${second} S${w.slots}${suffix}${w.semi ? ' (準理論値も)' : ''}`
+  return `${first} ${second} S${w.slots}${suffix}`
 }
 
 /** 入れた値がそのまま同じ条件か (id は見ない。当たる範囲で比べるなら covers) */
 export const sameWanted = (a: Wanted, b: Wanted) =>
-  !a.semi === !b.semi &&
   a.compare === b.compare &&
   a.skill1 === b.skill1 &&
   a.pts1 === b.pts1 &&
@@ -139,52 +166,46 @@ function boxCovers(ca: Coverage, cb: Coverage): boolean {
   return first && second && within(ca.slots, cb.slots)
 }
 
-/** 範囲に入る護石を 1 つずつ (どの欄も 1 つの値の範囲) 並べる。スキルを問わない欄があれば並べきれないので null */
-function pointsOf(c: Coverage): Coverage[] | null {
-  if (c.skill1 === null || c.skill2 === null) return null
-  const values = (s: Span) => Array.from({ length: s.hi - s.lo + 1 }, (_, i) => s.lo + i)
-  const one = (v: number): Span => ({ lo: v, hi: v })
-  const { skill1, skill2 } = c
-  const seconds: Coverage['skill2'][] =
-    skill2 === 'none' ? ['none'] : values(skill2.pts).map((p) => ({ skill: skill2.skill, pts: one(p) }))
-  return values(skill1.pts).flatMap((p1) =>
-    seconds.flatMap((s2) =>
-      values(c.slots).map((s) => ({
-        skill1: { skill: skill1.skill, pts: one(p1) },
-        skill2: s2,
-        slots: one(s),
-      })),
-    ),
-  )
-}
-
 /**
  * a の条件が、b の条件で当たる護石を全部当てるか (b が a に含まれるか。同じ範囲なら互いに含む)。欄ごとに範囲を比べる。
- * 準理論値もの条件は 4 通りの集まりとして比べる (a がそうなら、b に当たる護石を 1 つずつ並べて、どれかに入るかを見る)。
  * skills はマカフシギ錬金で出るスキルとポイントの範囲 (「以上」の範囲の端に使う)
  */
 export function covers(a: Wanted, b: Wanted, skills: SkillInfo[]): boolean {
-  const boxes = piecesOf(a, skills).map((p) => coverage(p, skills))
-  return piecesOf(b, skills).every((pb) => {
-    const cb = coverage(pb, skills)
-    if (boxes.length === 1) return boxCovers(boxes[0], cb)
-    const points = pointsOf(cb)
-    return points !== null && points.every((p) => boxes.some((box) => boxCovers(box, p)))
-  })
+  return boxCovers(coverage(a, skills), coverage(b, skills))
 }
 
-/** 条件をスキルとスロットの札にする (「痛撃6以上」「第2問わず」「S3以上」) */
-export function wantedChips(w: Wanted, skills: SkillInfo[]): string[] {
-  const atLeast = w.compare === 'atLeast'
-  const suffix = atLeast ? '以上' : ''
-  // 登録のしかたの名前 (登録した一覧と同じく先頭に。カスタムは付けない)
-  const mode = { theory: ['理論値'], semi: ['準理論値も'], custom: [] }[modeOf(w, skills)]
-  return [
-    ...mode,
-    w.skill1 === null ? '第1問わず' : `${skillName(skills, w.skill1)}${w.pts1}${suffix}`,
-    w.skill2 === null ? (atLeast ? '第2問わず' : '第2なし') : `${skillName(skills, w.skill2)}${w.pts2}${suffix}`,
-    `S${w.slots}${suffix}`,
-  ]
+/** 第 1 スキル × 第 2 スキルの組み合わせ (まとめる単位)。第 2 スキルを問わないものと、なしのものは別にする */
+export const groupKey = (w: Wanted) => `${w.skill1 ?? 'any'}-${w.skill2 ?? (w.compare === 'atLeast' ? 'any' : 'none')}`
+
+/** 組み合わせの名前 (「痛撃 × 達人」) */
+export function groupTitle(w: Wanted, skills: SkillInfo[]): string {
+  const first = w.skill1 === null ? '第1問わず' : skillName(skills, w.skill1)
+  const second = w.skill2 !== null ? skillName(skills, w.skill2) : w.compare === 'atLeast' ? '第2問わず' : '第2なし'
+  return `${first} × ${second}`
+}
+
+/** 条件を組み合わせでまとめる (組み合わせはスキルの番号の順で、問わず・なしは先。中はポイントの大きい順) */
+export function groupWanted(wanted: Wanted[]): Wanted[][] {
+  const order = (w: Wanted) => [w.skill1 ?? -1, w.skill2 ?? (w.compare === 'atLeast' ? -2 : -1)]
+  const groups = new Map<string, Wanted[]>()
+  for (const w of wanted) groups.set(groupKey(w), [...(groups.get(groupKey(w)) ?? []), w])
+  return [...groups.values()]
+    .map((g) =>
+      g.toSorted((a, b) => (b.pts1 ?? 0) - (a.pts1 ?? 0) || (b.pts2 ?? 0) - (a.pts2 ?? 0) || b.slots - a.slots),
+    )
+    .toSorted((a, b) => {
+      const [x, y] = [order(a[0]), order(b[0])]
+      return x[0] - y[0] || x[1] - y[1]
+    })
+}
+
+/** 組み合わせの中での、ポイントとスロットの条件 (「6・10・S3」「5以上・9以上・S2以上」) */
+export function conditionText(w: Wanted): string {
+  const suffix = w.compare === 'atLeast' ? '以上' : ''
+  return [w.pts1, w.pts2, `S${w.slots}`]
+    .filter((v) => v !== null)
+    .map((v) => `${v}${suffix}`)
+    .join('・')
 }
 
 /** 当たりフレーム: 錬金するフレームと、鑑定の何番目に出るか */

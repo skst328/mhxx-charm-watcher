@@ -3,24 +3,33 @@ import { ChevronDownIcon, ChevronUpIcon, LoaderCircleIcon } from 'lucide-react'
 
 import { GosekiTable } from '@/components/goseki-table'
 import { HourGrid } from '@/components/hour-grid'
-import { RemoveButton, WantedChips } from '@/components/wanted-chips'
 import { Button } from '@/components/ui/button'
-import { watch, type WatchResult } from '@/lib/core'
+import { watchEach, type WatchResult } from '@/lib/core'
 import { roughTime } from '@/lib/frame'
 import type { SkillInfo } from '@/lib/types'
 import { cn } from '@/lib/utils'
-import { DETAIL_HOURS, FPS, GRID_HOURS, HOUR, hourlyAims, REACH_HOURS, type Wanted } from '@/lib/watch'
+import {
+  DETAIL_HOURS,
+  FPS,
+  GRID_HOURS,
+  HOUR,
+  hourlyAims,
+  MODE_LABEL,
+  modeOf,
+  REACH_HOURS,
+  wantedText,
+  type Wanted,
+} from '@/lib/watch'
 
 /**
- * 欲しい護石 1 つぶん: 条件の札、次に錬金できるまでの時間、3 日ぶんの当たりのマス、詳細 (10 日ぶんの錬金枠の表)。
- * 詳細は開いたときに探す (ふだんは 3 日ぶんだけで軽く済ませる)
+ * 欲しい護石 (一致の条件) 1 つぶん: 条件 (理論値・準理論値はその名前も)、次に錬金できるまでの時間、
+ * 3 日ぶんの当たりのマス、詳細 (10 日ぶんの錬金枠の表)。詳細は開いたときに探す (ふだんは 3 日ぶんだけで軽く済ませる)
  */
 export function WantedCard({
   wanted: w,
   skills,
   from,
   result,
-  onRemove,
 }: {
   wanted: Wanted
   /** マカフシギ錬金で出るスキルとポイントの範囲 (名前を出すのと、詳細を探すのに使う) */
@@ -28,7 +37,6 @@ export function WantedCard({
   /** 調べたときの現在フレーム。まだ調べていなければ null */
   from: number | null
   result: WatchResult | undefined
-  onRemove: () => void
 }) {
   const [open, setOpen] = useState(false)
   const [detail, setDetail] = useState<WatchResult | null>(null)
@@ -36,6 +44,7 @@ export function WantedCard({
 
   const gosekis = result && 'gosekis' in result ? result.gosekis : null
   const next = gosekis?.[0]?.aims[0]
+  const label = MODE_LABEL[modeOf(w, skills)]
 
   const toggle = async () => {
     if (open) {
@@ -45,15 +54,15 @@ export function WantedCard({
     setOpen(true)
     if (detail !== null || from === null) return
     setLoading(true)
-    setDetail(await watch(w, skills, from, DETAIL_HOURS))
+    setDetail((await watchEach([w], skills, from, DETAIL_HOURS))[w.id])
     setLoading(false)
   }
 
   return (
     <li className="space-y-2 rounded-lg border bg-card p-3">
-      <div className="flex items-start gap-2">
-        <WantedChips wanted={w} skills={skills} />
-        <RemoveButton onClick={onRemove} />
+      <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm">
+        {label && <span className="rounded-full bg-muted px-2 py-0.5 text-xs font-semibold">{label}</span>}
+        <span className="font-semibold tabular-nums">{wantedText(w, skills)}</span>
       </div>
 
       {result === undefined || from === null ? (
@@ -62,7 +71,7 @@ export function WantedCard({
         <p className="text-sm text-destructive">{result.error}</p>
       ) : (
         <>
-          {/* 次の当たりまでの時間を、カードの見出しとして大きく出す。届く範囲なら、マスの枠と同じ緑にする。
+          {/* 次の当たりまでの時間を大きく出す。届く範囲なら、マスの枠と同じ緑にする。
               3 日以内に出なければ、マスが空なので「—」だけ */}
           <div>
             <div className="text-xs text-muted-foreground">次の当たりまで</div>

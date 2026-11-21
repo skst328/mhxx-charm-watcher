@@ -29,13 +29,13 @@ import {
 import { Button } from '@/components/ui/button'
 import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
-import { loadRewardSkills, loadSkills, watch, type RewardSkills, type WatchResult } from '@/lib/core'
+import { loadRewardSkills, loadSkills, watchEach, type RewardSkills, type WatchResult } from '@/lib/core'
 import type { SkillInfo } from '@/lib/types'
 import { parseFrame } from '@/lib/frame'
 import { useStored } from '@/lib/storage'
 import { cn } from '@/lib/utils'
 import { FAMOUS } from '@/lib/famous'
-import { covers, GRID_HOURS, wantedText, type Wanted } from '@/lib/watch'
+import { covers, GRID_HOURS, semisOf, wantedText, type Wanted } from '@/lib/watch'
 
 type Tab = 'watch' | 'register'
 
@@ -54,7 +54,7 @@ export default function App() {
   /** 現在フレームの欄 (前回の値を覚えておく) */
   const [frameText, setFrameText] = useStored('current-frame', '')
   const [wanted, setWanted] = useStored<Wanted[]>('wanted-charms', [])
-  /** 調べた結果と、そのときの現在フレーム (欄を書き換えても、どこから調べた結果かが分かるように) */
+  /** 調べた結果 (条件ごと) と、そのときの現在フレーム (欄を書き換えても、どこから調べた結果かが分かるように) */
   const [results, setResults] = useState<{ from: number; byId: Record<string, WatchResult> } | null>(null)
   const [searching, setSearching] = useState(false)
   /** 消すか確かめている欲しい護石 (all なら全部。件数は確かめ始めたときのもの)。確かめの窓を閉じても残す
@@ -75,14 +75,16 @@ export default function App() {
 
   const current = parseFrame(frameText)
 
-  /** 有名な理論値護石を、準理論値も当てる形で登録するか (前回の選択を覚えておく) */
+  /** 有名な理論値護石を、準理論値も一緒に登録するか (前回の選択を覚えておく) */
   const [famousSemi, setFamousSemi] = useStored('famous-semi', false)
-  /** 有名な理論値護石のうち、まだ登録していないもの (選んだ形で)。
+  /** 有名な理論値護石 (準理論値もなら、それぞれの 3 通りの準理論値も) のうち、まだ登録していないもの。
    * 登録済みの条件に含まれるもの (同じ範囲のものも) は登録済みとみなす */
   const unregisteredFamous: Wanted[] = skills
-    ? FAMOUS.map((f) => ({ ...f, id: '', semi: famousSemi })).filter((f) => !wanted.some((w) => covers(w, f, skills)))
+    ? FAMOUS.flatMap((f) => [f, ...(famousSemi ? semisOf(f, skills) : [])])
+        .map((f) => ({ ...f, id: '' }))
+        .filter((f) => !wanted.some((w) => covers(w, f, skills)))
     : []
-  // まとめて登録する。フォームと同じく、足すものに含まれる登録済みのもの (準理論値もを足すときの理論値など) は消す
+  // まとめて登録する。フォームと同じく、足すものに含まれる登録済みのものは消す
   const addFamous = () => {
     if (skills === null) return
     const adding = unregisteredFamous.map((f) => ({ ...f, id: crypto.randomUUID() }))
@@ -94,8 +96,8 @@ export default function App() {
     setConfirming(true)
   }
 
-  /** ウォッチタブのカードの並び: 次の当たりフレームが近い順。3 日以内に出ないもの・調べていないものは
-   * 後ろに、登録した順で */
+  /** ウォッチタブのカードの並び: 条件ごとに、次の当たりフレームが近い順。3 日以内に出ないもの・
+   * 調べていないものは後ろに、登録した順で */
   const byNext = useMemo(() => {
     const next = (w: Wanted) => {
       const r = results?.byId[w.id]
@@ -105,13 +107,11 @@ export default function App() {
     return wanted.toSorted((a, b) => (next(a) === next(b) ? 0 : next(a) - next(b)))
   }, [wanted, results])
 
-  // 欲しい護石ごとに、現在フレームから 3 日先までの錬金枠を探す
+  // 条件ごとに、現在フレームから 3 日先までの錬金枠を探す (探すのは組み合わせごとに 1 回)
   const check = async () => {
     if (current === null || skills === null) return
     setSearching(true)
-    const byId: Record<string, WatchResult> = {}
-    for (const w of wanted) byId[w.id] = await watch(w, skills, current, GRID_HOURS)
-    setResults({ from: current, byId })
+    setResults({ from: current, byId: await watchEach(wanted, skills, current, GRID_HOURS) })
     setSearching(false)
   }
 
@@ -222,7 +222,6 @@ export default function App() {
                         skills={skills}
                         from={results?.from ?? null}
                         result={results?.byId[w.id]}
-                        onRemove={() => askRemove(w)}
                       />
                     ))}
                   </ul>
